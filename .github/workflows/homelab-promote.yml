@@ -1,0 +1,30 @@
+name: Promote compiled AI release
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing homelab-v release image to publish as latest
+        required: true
+        type: string
+permissions:
+  contents: read
+  packages: write
+jobs:
+  promote:
+    if: github.repository == 'Nulifyer/lemonade-homelab'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate release tag
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: '[[ "$RELEASE_TAG" =~ ^homelab-v[0-9]+\.[0-9]+\.[0-9]+$ ]]'
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Promote existing image without rebuilding
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: docker buildx imagetools create --tag ghcr.io/nulifyer/lemonade-homelab:latest "ghcr.io/nulifyer/lemonade-homelab:$RELEASE_TAG"

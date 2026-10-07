@@ -25,7 +25,9 @@ jobs:
           context: .
           file: contrib/homelab/Dockerfile
           push: true
-          tags: ghcr.io/nulifyer/lemonade-homelab:${{ github.ref_name }}
+          tags: |
+            ghcr.io/nulifyer/lemonade-homelab:${{ github.ref_name }}
+            ghcr.io/nulifyer/lemonade-homelab:latest
           build-args: SOURCE_REVISION=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
