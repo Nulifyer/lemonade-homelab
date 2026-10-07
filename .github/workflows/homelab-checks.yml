@@ -1,13 +1,19 @@
-name: Homelab interface checks
+name: Homelab native service checks
 on:
   push:
     branches: [homelab-runtime]
     paths:
+      - src/cpp/**
+      - test/**
       - contrib/homelab/**
+      - CMakeLists.txt
       - .github/workflows/homelab-checks.yml
   pull_request:
     paths:
+      - src/cpp/**
+      - test/**
       - contrib/homelab/**
+      - CMakeLists.txt
       - .github/workflows/homelab-checks.yml
   workflow_dispatch:
 permissions:
@@ -16,18 +22,17 @@ concurrency:
   group: homelab-checks-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  interface:
+  native:
     if: github.repository == 'Nulifyer/lemonade-homelab'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: contrib/homelab/interface
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
         with:
-          go-version: '1.27'
-          cache: false
-      - run: go test -race -timeout 60s ./...
-      - run: go vet ./...
+          context: .
+          file: contrib/homelab/Dockerfile
+          target: manager-build
+          cache-from: type=registry,ref=ghcr.io/nulifyer/lemonade-homelab:buildcache
+          push: false

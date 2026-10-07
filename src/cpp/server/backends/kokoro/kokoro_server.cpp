@@ -187,6 +187,17 @@ json KokoroServer::responses(const json& request) {
     };
 }
 
+json KokoroServer::available_voices() {
+    const auto response = HttpClient::get(get_address() + "/audio/voices", {}, 5,
+        HttpSecurityPolicy::TrustedLoopback);
+    if (response.status_code != 200 || response.body.size() > 65536)
+        throw std::runtime_error("Kokoro voice discovery failed");
+    auto catalog = json::parse(response.body);
+    if (!catalog.contains("voices") || !catalog["voices"].is_array())
+        throw std::runtime_error("Invalid Kokoro voice catalog");
+    return catalog;
+}
+
 void KokoroServer::audio_speech(const json& request, httplib::DataSink& sink) {
     json tts_request = request;
     tts_request["model"] = "kokoro";

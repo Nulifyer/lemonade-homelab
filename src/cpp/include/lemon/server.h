@@ -20,6 +20,7 @@
 #include <vector>
 #include <httplib.h>
 #include "runtime_config.h"
+#include "consumer_service.h"
 #include "router.h"
 #include "routing_policy.h"
 #include "alias_manager.h"
@@ -288,6 +289,7 @@ private:
     // Audio endpoint handlers (OpenAI /v1/audio/* compatible)
     void handle_audio_transcriptions(const httplib::Request& req, httplib::Response& res);
     void handle_audio_speech(const httplib::Request& req, httplib::Response& res);
+    void handle_audio_voices(const httplib::Request& req, httplib::Response& res);
 
     // Image endpoint handlers (OpenAI /v1/images/* compatible)
     void handle_image_generations(const httplib::Request& req, httplib::Response& res);
@@ -359,6 +361,7 @@ private:
     double get_vram_usage();
     double get_npu_utilization();
 
+    std::unique_ptr<ConsumerService> consumer_service_;
     std::shared_ptr<RuntimeConfig> config_;
     std::string cache_dir_;  // Lemonade cache dir; persistent JSON may live in sibling .config dir
     std::string config_dir_;
@@ -394,7 +397,7 @@ private:
     std::map<std::string, std::shared_ptr<DownloadJob>> download_jobs_;
 
     bool running_;
-    bool startup_failed_ = false;
+    std::atomic<bool> startup_failed_{false};
     std::atomic<bool> shutdown_requested_{false};
     std::atomic<bool> rebind_requested_{false};
     std::atomic<bool> metrics_access_logged_{false};

@@ -1,109 +1,130 @@
-# Homelab runtime integration
+# Native Homelab integration
 
-This fork adds two native backends to Lemonade's existing lifecycle and model registry.
-`hybrid` uses the released XDNA2/Vulkan engine and reserves both accelerators with exclusive NPU admission.
-`parakeet` runs the pinned v0.6.0 Redux CPU server through the transcription interface.
-The llama.cpp runtime launch hook reuses its existing request, streaming, cancellation and watchdog code.
+One `lemond` process owns model management, consumer HTTP, Wyoming voice and
+critical-model recovery. These functions are C++ modules in Lemonade. Consumer
+requests call the existing OpenAI and Ollama handlers directly. They share the
+same Router, aliases, backend processes, cancellation and saved model options.
+No separate interface or startup command is required.
 
-The image bundles both engines and a Go inference/Wyoming interface. It contains no new Python serving process.
-Lemonade remains the owner of Hugging Face downloads, model revisions, aliases and backend subprocesses.
-The Go interface restricts consumer keys to approved aliases and inference routes.
-It rejects duplicate JSON keys and ambiguous model fields. It does not execute tools or expose model administration.
-Home Assistant uses Lemonade's existing Ollama compatibility through this interface.
+The hybrid and Parakeet adapters remain native backend recipes. The hybrid
+recipe launches the matched XDNA2/Vulkan llama.cpp bundle and reserves the NPU.
+Its dynamic GGML plugin depends on the bundled llama.cpp phase-dispatch patch.
+It cannot be installed into an arbitrary upstream llama.cpp binary. Parakeet
+Redux uses the pinned C++ CPU runtime. Model runtimes remain subprocesses.
 
-The voice interface bounds connections, utterance buffers, STT and TTS admission, HTTP requests and output buffers.
-It reads WAV sample rates, accepts Kokoro's bounded streaming WAV header and converts float32 samples when required.
-Disconnecting a Wyoming client cancels its HTTP request. Failed POST requests are not replayed.
-Clients open a fresh session after disconnects. Model restart and host recovery require deployment tests.
+## Container contract
 
-Run the same Go executable with `--warmup` as the `model-startup` service in the
-manager stack. It loads and pins only `HA-Qwen35-2B`, `Redux-English` and `kokoro-v1`.
-It checks every 15 seconds and restores missing models after a manager restart.
-Loads use existing saved options. Missing downloads are reported instead of fetched.
-One failed model does not prevent the other critical models from loading.
-Skyfall and the 27B Qwen remain on demand.
+Run `ghcr.io/nulifyer/lemonade-homelab:latest`. Its entrypoint is `lemond` and its
+default arguments bind the manager to `0.0.0.0:13305`. `--help` documents native
+arguments. The image enables the consumer listeners through packaged defaults.
+Persistent `config.json` settings override those defaults.
 
-The startup worker exposes only `/health` and `/ready`, without a public router
-or Wyoming listener. Both worker and consumer `/ready` query live manager health
-and return 503 unless every critical backend is loaded, healthy and pinned.
-`/health` is process liveness. Readiness does not establish inference quality.
-Keep model management in Lemonade and keep the worker running alongside it.
+| Listener | Purpose |
+| --- | --- |
+| 13305 | Native management API, CLI and `/app` model dashboard |
+| 8080 | OpenAI/Ollama role APIs, discovery, readiness and request diagnostics |
+| 10300 | Private Wyoming STT/TTS for Home Assistant |
 
-Configure `hybrid.npu_bin` as `/opt/llama/hybrid-server` and `parakeet.cpu_bin` as `/opt/parakeet/parakeet-server`.
-Configure `llamacpp.vulkan_bin` as `/opt/llama/vulkan-server` to isolate the GPU runtime's library environment.
-Each hybrid model stores `hybrid_copy_gib`, `ctx_size` and `llamacpp_args` in its recipe options.
-Do not run an independent FLM or standalone hybrid stack alongside this manager's NPU workloads.
+Preserve the existing configuration, Hugging Face, llama.cpp, runtime and KV
+volume mounts. Device access remains `/dev/dri`, `/dev/kfd` and `/dev/accel`.
+The Homelab repository owns actual mounts, resource limits and internal Traefik
+routes. Publish no host ports. Keep Wyoming on the private HA network. Set `consumer.wyoming_host` to its
+private Docker alias, `ai-voice`, so speech does not bind the Traefik interface.
 
-Set `LEMONADE_URL` and `AUTH_MODE=none` for LAN clients that do not use API keys.
-Remove `LEMONADE_API_KEY` and `LEMONADE_ADMIN_API_KEY` from the manager environment.
-Leave `LEMONADE_BACKEND_KEY` and consumer keys unset. All five model aliases become
-available without credentials. Inference admission, presets and administration
-route restrictions remain active. Client Authorization headers are discarded.
+The manager handles SIGTERM and unloads backend children. All service logs go to
+stdout/stderr in one Docker container. Use its shell for native diagnostics.
+The healthcheck requests consumer `/ready`, rather than inferring health from
+the running process. A cold service stays unready until critical models load.
 
-`AUTH_MODE=keys` (the default) requires `LEMONADE_BACKEND_KEY`, `HA_API_KEY`,
-`LUNCHLOXS_API_KEY`, `ROLEPLAY_API_KEY` and `GENERAL_API_KEY`.
-Consumer keys must be distinct and at least 32 characters.
-The default utility voice is `af_heart`. Use the tested `TTS_VOICE` value from the deployment manifest.
-`interface/presets.json` owns sampling defaults for each role. The interface fills missing
-temperature, top-p, top-k, min-p and penalty fields; explicit client values win.
-Ollama options use the same mappings as the OpenAI-compatible routes.
-Default output limits are 256 tokens for small tasks, 1024 for roleplay and 2048
-for agent work. `INFERENCE_TIMEOUT` defaults to 20 minutes and accepts 15 seconds
-through 30 minutes. Set Lemonade and application deadlines to the same budget.
-Wyoming has no application authentication. Keep port 10300 on the private Home Assistant network.
+## Shared configuration
 
-Verify the interface with `go test -race -timeout 60s ./...` and `go vet ./...` in `contrib/homelab/interface`.
-The release image builds and tests the manager, pinned Parakeet source and Go interface before publishing.
-The Homelab repository owns Portainer settings, consumer migration and hardware acceptance evidence.
+[service.example.json](service.example.json) shows the `consumer` section of
+Lemonade's existing `config.json`. Native CLI/config APIs read and save these
+settings. There is no second service configuration file. Use `/internal/config`
+for saved shared settings and `/v1/service` for the active consumer configuration,
+role targets, metadata and readiness. Consumer changes require a restart;
+saved settings and the active configuration can differ until then.
 
-## Fork automation
+The same service and readiness endpoints use all four native prefixes:
+`/api/v0/`, `/api/v1/`, `/v0/` and `/v1/`. Consumer `/ready`, `/health`,
+`/openapi.json` and `/` preserve the former interface's URLs. Ollama keeps its
+protocol paths under `/api/`.
 
-`homelab-checks.yml` runs the compiled interface's race tests and vet on branch
-changes. `homelab-release.yml` builds/tests and publishes tagged images;
-`homelab-promote.yml` promotes an already tested release without rebuilding.
-Inherited upstream publishing, triage, packaging and hardware-runner jobs are
-restricted to `lemonade-sdk/lemonade` and disabled in this fork. They require
-upstream credentials or infrastructure. Hosted documentation, routing and
-registry tests remain available. No account notification settings are changed.
+Consumer settings include bind addresses, ports, voice, public links, admission
+limits, inference write timeout, recovery interval, critical role list and
+sampling presets. Unknown settings, invalid types, conflicting listener ports
+and invalid presets reject startup or configuration updates. Upstream shared
+configuration behavior remains the owner of file discovery and persistence.
 
-## Service discovery and logs
+The defaults load and pin only `small-task`, `speech-stt` and `speech-tts`, using
+persistent aliases. They currently target HA Qwen 2B, Redux and Kokoro. Recovery
+uses saved recipe options and never downloads absent models. It restores missing
+or dead backends and pins an existing healthy backend without reloading it.
+Healthy includes `busy`. A failed role does not skip the other critical roles.
+Agent Qwen 27B and Skyfall remain on demand. Three LLM slots allow both alongside HA.
 
-The native hybrid catalog advertises the accepted text and tool-calling features.
-It omits vision and MTP labels even when the checkpoint contains those features.
-The deployed native profile uses text input and disables speculative decoding.
-Other llama.cpp registrations retain their own checkpoint capabilities.
-Speech and image models do not inherit the global LLM context in model metadata.
-Kokoro download completeness and size include the model and voice files named
-by its index. Service aliases expose `alias_of` and share the canonical metadata.
-The model-management catalog lists canonical registrations without duplicate aliases.
-The hybrid options dialog exposes its saved context, NPU copy budget and llama.cpp
-arguments, including sampling settings. Its fixed native launcher has no GPU-only
-backend selector. Redux exposes bounded integer CPU threads. Speech dialogs omit
-LLM context controls. Pinning remains live state and does not replace startup restoration.
+`consumer.presets` supplies missing sampling values. Explicit client fields win,
+including Ollama top-level options. Defaults are 256 output tokens for small
+tasks, 1024 for roleplay and 2048 for agent work. Temperature, top-p, top-k,
+min-p and penalties are part of this shared native contract. Backend contexts
+and NPU copy budgets remain saved recipe options, not HTTP sampling settings.
 
-Check these contracts without inference or downloads:
+Leave `LEMONADE_API_KEY` and `LEMONADE_ADMIN_API_KEY` unset for the selected
+key-free LAN deployment. When a native API key is set, the consumer listener
+also enforces it. Wyoming has no protocol authentication and requires a private
+network. The consumer listener accepts approved aliases and inference routes;
+model registration, downloads and lifecycle controls belong to the manager.
+The consumer module does not replay failed inference requests. Native backend
+watchdog recovery retains its existing policy.
+
+`GET /v1/audio/voices` returns installed English voice IDs, usable descriptions,
+languages and the configured default. Wyoming advertises the same catalog and
+forwards the selected voice to Kokoro. Voice discovery reads the running backend;
+it does not invent installed voices from a static list. HA uses the voice
+description as the dropdown label. OpenAI-compatible synthesis also retains
+Kokoro's supported OpenAI voice aliases.
+
+Wyoming bounds clients, frame lengths and utterance buffers. It accepts English
+PCM16 input and converts finite float32 Kokoro output to PCM16. Malformed WAVs,
+nonfinite samples and unsupported audio fail. Speech requests share Lemonade's
+backend handling. Disconnects during a synchronous Wyoming backend call close
+the session after that call returns; this is not an abort guarantee for speech.
+OpenAI cancellation remains in the existing manager handlers.
+
+## Build, tests and upstream updates
+
+The production base retains Ubuntu 26.04, glibc, XRT and Vulkan. Alpine uses musl
+and cannot directly load these matched native binaries. Build stages contain the
+compilers, npm and tests; the final image omits them. The former Go interface
+build and binary are removed. The accepted v0.1.13 image baseline was 0.481 GiB;
+new size and timings require measurements.
+
+Release builds use a shared GHCR `buildcache` tag for intermediate layers.
+[Docker registry cache](https://docs.docker.com/build/ci/github-actions/cache/#registry-cache)
+allows reuse across independent release tags. Publication is serialized and
+requires native tests and a default-container smoke test before pushing `latest`.
+The smoke test does not establish accelerator or real-model correctness.
+
+Run the focused native checks with:
 
 ```bash
-ctest --test-dir build --output-on-failure -R '^ModelDownloadStateTest$'
-python3 test/homelab_model_metadata.py build/lemond
-node test/homelab_recipe_options.cjs
+cmake --build build-local -j4 --target lemond test_consumer_service test_homelab_ollama
+ctest --test-dir build-local --output-on-failure -R '^(ConsumerServiceTest|HomelabOllamaTest)$'
 ```
 
-`GET /` lists the approved model roles and their APIs. `GET /openapi.json` returns
-the inference contract, filtered to the consumer scope in key mode. Set
-`AI_PUBLIC_URL`, `CHAT_URL`, `MANAGER_URL` and `CONSOLE_URL` to publish service links.
-The catalog does not expose model administration.
+`ConsumerServiceTest` exercises configuration, explicit sampling, aliases,
+restricted routes, stream admission, busy readiness, partial recovery, real
+Wyoming sockets, PCM/float32 conversion, voice selection and shutdown with an idle voice client.
+The Homelab repository owns hardware, actual-model, HA and LibreChat acceptance.
+Wyoming currently uses POSIX sockets; disabled consumer support still compiles
+on Windows. An enabled Windows Wyoming listener fails explicitly.
 
-The interface writes JSON events to stderr for Docker and Portainer logs. HTTP
-events include a generated `X-Request-ID`, approved model, status, duration and
-response bytes. Wyoming events include speech model, backend status and failure
-category. Successful health probes are quiet. Prompts, transcripts, audio,
-credentials, query strings and unknown URL paths are excluded. These metadata
-events establish request progress and failure boundaries, not model quality.
+Keep the consumer module separate from backend implementations. Upstream merges
+should need only its Server lifecycle/handler registration, shared configuration
+validation and source/test registration. Runtime ABI changes remain in the
+separate `llama-xdna-hybrid` repository and require matched compatibility tests.
 
-## Limits
-
-Hybrid execution accelerates eligible prefill matrix operations. Attention, recurrence and decoding remain on GPU.
-MoE expert matrix operations are not accelerated by the current XDNA implementation.
-Bundled backends are Linux x86_64 deployment targets. Redux processes completed utterances.
-The voice interface does not supply wake-word detection, microphone drivers or speaker hardware.
+Inherited upstream triage, publishing and hardware-runner jobs are gated to
+`lemonade-sdk/lemonade` and disabled in this fork. Fork workflows own hosted
+native checks, release builds and promotion. No account notification settings
+are changed.

@@ -231,6 +231,7 @@ public:
     json responses(const json& request);
 
     json audio_transcriptions(const json& request);
+    json audio_voices(const json& request);
     void audio_speech(const json& request, httplib::DataSink& sink);
     std::vector<std::string> audio_speech_supported_formats(const std::string& model_name);
     std::vector<std::string> audio_speech_supported_streaming_formats(const std::string& model_name);

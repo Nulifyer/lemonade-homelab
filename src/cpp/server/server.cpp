@@ -668,6 +668,56 @@ Server::Server(std::shared_ptr<RuntimeConfig> config,
         admin_api_key_ = api_key_;
     }
 
+    auto consumer_config = ConsumerConfig::parse(config_->snapshot().value("consumer", json::object()));
+    if (consumer_config.value["enabled"].get<bool>()) {
+        if (consumer_config.value["port"] == port_.load() || consumer_config.value["wyoming_port"] == port_.load())
+            throw std::invalid_argument("Consumer and manager ports must differ");
+        auto ollama = std::make_shared<OllamaApi>(router_.get(), model_manager_.get(),
+            [this](const std::string& name) { return resolve_alias_target(name); });
+        ConsumerService::Manager manager;
+        manager.failed = [this] { startup_failed_ = true; shutdown_requested_ = true; };
+        {
+            std::ifstream contract(utils::get_resource_path("resources/consumer_openapi.json"));
+            if (!contract) throw std::runtime_error("Consumer API contract is unavailable");
+            manager.openapi = json::parse(contract);
+        }
+        manager.voices = [this] {
+            auto result = router_->audio_voices({{"model", resolve_alias_target("speech-tts")}});
+            if (result.contains("error")) throw std::runtime_error("Speech model unavailable");
+            return result.at("voices");
+        };
+        manager.health = [this] { return router_->get_all_loaded_models(); };
+        manager.metadata = [this](const std::string& role) {
+            auto name = resolve_alias_target(role);
+            return model_info_to_json(name, model_manager_->get_model_info(name));
+        };
+        manager.ensure_critical = [this](const std::string& role, std::atomic<bool>& cancel) {
+            const auto name = model_manager_->resolve_model_name(resolve_alias_target(role));
+            for (const auto& model : router_->get_all_loaded_models()) {
+                const auto health = model.value("backend_health", "");
+                if (model.value("model_name", "") == name && model.value("loaded", false) &&
+                    model.value("backend_alive", false) && (health == "ready" || health == "busy")) {
+                    if (!model.value("pinned", false)) router_->set_model_pinned(name, true);
+                    return;
+                }
+            }
+            auto info = model_manager_->get_model_info(name);
+            if (!info.downloaded) throw std::runtime_error("Critical model is not downloaded");
+            LOG(INFO, "Consumer") << "Restoring critical role " << role << std::endl;
+            router_->load_model(name, info, RecipeOptions(info.recipe, json::object()),
+                true, false, true, LoadPurpose::UserInference, &cancel);
+        };
+        manager.invoke = [this, ollama](const std::string& path, const httplib::Request& req, httplib::Response& res) {
+            if (authenticate_request(req, res) == httplib::Server::HandlerResponse::Handled) return;
+            if (path == "/api/v1/chat/completions") handle_chat_completions(req, res);
+            else if (path == "/api/v1/completions") handle_completions(req, res);
+            else if (path == "/api/v1/responses") handle_responses(req, res);
+            else if (path == "/api/v1/audio/speech") handle_audio_speech(req, res);
+            else if (path == "/api/v1/audio/transcriptions") handle_audio_transcriptions(req, res);
+            else ollama->handle_consumer_request(req, res);
+        };
+        consumer_service_ = std::make_unique<ConsumerService>(std::move(consumer_config), std::move(manager), api_key_);
+    }
     setup_http_servers();
 
     // Initialize WebSocket server for realtime API and log streaming
@@ -1072,6 +1122,19 @@ void Server::setup_routes(httplib::Server &web_server) {
         handle_metrics(req, res);
     });
 
+    for (const auto* prefix : {"/api/v0/", "/api/v1/", "/v0/", "/v1/"}) {
+        web_server.Get(std::string(prefix) + "service", [this](const auto& req, auto& res) {
+            if (consumer_service_) consumer_service_->handle(req, res);
+            else { res.status = 503; res.set_content("Consumer service disabled", "text/plain"); }
+        });
+        web_server.Get(std::string(prefix) + "ready", [this](const auto&, auto& res) {
+            if (!consumer_service_) { res.status = 503; return; }
+            auto state = consumer_service_->readiness();
+            res.status = state["ready"].get<bool>() ? 200 : 503;
+            res.set_content(state.dump(), "application/json");
+        });
+    }
+
     // Setup CORS for all routes
     setup_cors(web_server);
 
@@ -1240,6 +1303,7 @@ void Server::setup_routes(httplib::Server &web_server) {
     });
 
     // Speech
+    register_get("audio/voices", [this](const auto& req, auto& res) { handle_audio_voices(req, res); });
     register_post("audio/speech", [this](const httplib::Request& req, httplib::Response& res) {
         handle_audio_speech(req, res);
     });
@@ -2037,6 +2101,13 @@ void Server::run() {
     warn_if_unsecured(host, ipv4, ipv6);
 
     running_ = true;
+    if (consumer_service_) {
+        try { consumer_service_->start(); }
+        catch (const std::exception& e) {
+            LOG(ERROR, "Consumer") << "Consumer startup failed: " << e.what() << std::endl;
+            stop(); startup_failed_ = true; return;
+        }
+    }
 
     // Start WebSocket server for realtime API and log streaming
     if (websocket_server_) {
@@ -2228,6 +2299,7 @@ bool Server::startup_failed() const {
 }
 
 void Server::stop() {
+    if (consumer_service_) consumer_service_->stop();
     if (running_) {
         LOG(INFO, "Server") << "Stopping HTTP server..." << std::endl;
         udp_beacon_.stopBroadcasting();
@@ -4771,6 +4843,18 @@ void Server::handle_audio_transcriptions(const httplib::Request& req, httplib::R
     }
 }
 
+void Server::handle_audio_voices(const httplib::Request& req, httplib::Response& res) {
+    try {
+        const auto model = resolve_alias_target(req.has_param("model") ? req.get_param_value("model") : "speech-tts");
+        auto catalog = router_->audio_voices({{"model", model}});
+        if (catalog.contains("error")) { set_error_response(catalog, res, 503); return; }
+        res.set_content(catalog.dump(), "application/json");
+    } catch (...) {
+        res.status = 503;
+        res.set_content("{\"error\":\"Speech voice catalog unavailable\"}", "application/json");
+    }
+}
+
 void Server::handle_audio_speech(const httplib::Request& req, httplib::Response& res) {
     try {
         auto request_json = nlohmann::json::parse(req.body);
@@ -7300,6 +7384,8 @@ void Server::handle_bin_change(const std::string& section,
 }
 
 void Server::apply_config_side_effects(const json& applied_changes) {
+    if (applied_changes.contains("consumer"))
+        LOG(INFO, "Consumer") << "Consumer configuration saved; restart lemond to apply" << std::endl;
     for (auto& [key, value] : applied_changes.items()) {
         if (key == "port") {
             int new_port = config_->port();

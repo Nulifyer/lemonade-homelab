@@ -999,6 +999,7 @@ include_directories(
 # ============================================================
 set(SOURCES_CORE
     src/cpp/server/server.cpp
+    src/cpp/server/consumer_service.cpp
     src/cpp/server/collection_orchestrator.cpp
     src/cpp/server/jobs/job_ops.cpp
     src/cpp/server/jobs/job_manager.cpp
@@ -2462,6 +2463,9 @@ endif()
 
 # Ollama aliases and request sampling conversion.
 if(BUILD_TESTING)
+    add_executable(test_consumer_service test/cpp/test_consumer_service.cpp)
+    target_link_libraries(test_consumer_service PRIVATE lemonade-server-core)
+    add_cpp_ci_test(ConsumerServiceTest CI ON COMMAND test_consumer_service)
     add_executable(test_homelab_ollama test/cpp/test_homelab_ollama.cpp)
     target_link_libraries(test_homelab_ollama PRIVATE lemonade-server-core)
     add_cpp_ci_test(HomelabOllamaTest CI ON COMMAND test_homelab_ollama)

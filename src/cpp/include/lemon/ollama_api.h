@@ -21,6 +21,7 @@ public:
 
     // Must be called on a shared_ptr instance (uses shared_from_this internally)
     void register_routes(httplib::Server& server);
+    void handle_consumer_request(const httplib::Request& req, httplib::Response& res);
 
 private:
     friend struct OllamaApiTestAccess;

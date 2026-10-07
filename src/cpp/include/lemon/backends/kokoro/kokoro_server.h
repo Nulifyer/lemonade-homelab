@@ -36,6 +36,7 @@ public:
 
     // ITextToSpeechServer implementation
     void audio_speech(const json& request, httplib::DataSink& sink) override;
+    json available_voices() override;
     // Kokoros deserializes all six OpenAI formats but only implements four; aac and
     // flac silently fall back to MP3 bytes, so they are not advertised.
     std::vector<std::string> supported_audio_formats() const override {

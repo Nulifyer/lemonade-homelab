@@ -1,4 +1,5 @@
 #include "lemon/runtime_config.h"
+#include "lemon/consumer_service.h"
 #include "lemon/backends/backend_descriptor_registry.h"
 #include "lemon/system_info.h"
 #include "lemon/utils/aixlog.hpp"
@@ -297,6 +298,8 @@ RuntimeConfig::RuntimeConfig(const json& config)
         }
         config_.erase("no_broadcast");
     }
+
+    if (config_.contains("consumer")) ConsumerConfig::parse(config_["consumer"]);
 
     // Validate logging settings on startup
     if (config_.contains("log_max_file_size_mb")) {
@@ -794,7 +797,11 @@ json RuntimeConfig::recipe_options(const std::string& backend) const {
 }
 
 void RuntimeConfig::validate(const std::string& key, const json& value) const {
-    if (key == "port") {
+    if (key == "consumer") {
+        auto merged = snapshot().value("consumer", ConsumerConfig::defaults());
+        merged.merge_patch(value);
+        ConsumerConfig::parse(merged);
+    } else if (key == "port") {
         if (!value.is_number_integer()) {
             throw std::invalid_argument("'port' must be an integer");
         }
@@ -1189,7 +1196,15 @@ void RuntimeConfig::validate_backend(const std::string& backend, const std::stri
 
 void RuntimeConfig::apply_changes(const json& changes, json& applied_diff) {
     for (auto& [key, value] : changes.items()) {
-        if (value.is_object() && is_backend_name(key)) {
+        if (key == "consumer") {
+            auto merged = config_.value("consumer", ConsumerConfig::defaults());
+            merged.merge_patch(value);
+            merged = ConsumerConfig::parse(merged).value;
+            if (!config_.contains(key) || config_[key] != merged) {
+                config_[key] = merged;
+                applied_diff[key] = value;
+            }
+        } else if (value.is_object() && is_backend_name(key)) {
             // Merge nested backend changes; record per-sub-key diffs.
             if (!config_.contains(key)) {
                 config_[key] = json::object();

@@ -158,6 +158,12 @@ OllamaApi::OllamaApi(Router* router, ModelManager* model_manager,
     : router_(router), model_manager_(model_manager), model_resolver_(std::move(model_resolver)) {
 }
 
+void OllamaApi::handle_consumer_request(const httplib::Request& req, httplib::Response& res) {
+    if (req.path == "/api/chat") handle_chat(req, res);
+    else if (req.path == "/api/show") handle_show(req, res);
+    else { res.status = 403; res.set_content("Consumer endpoint unavailable", "text/plain"); }
+}
+
 void OllamaApi::register_routes(httplib::Server& server) {
     // Capture shared_ptr to keep OllamaApi alive as long as route handlers exist
     auto self = shared_from_this();

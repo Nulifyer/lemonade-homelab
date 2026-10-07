@@ -2229,6 +2229,14 @@ json Router::audio_transcriptions(const json& request) {
     });
 }
 
+json Router::audio_voices(const json& request) {
+    return execute_inference(request, [](WrappedServer* server) {
+        auto* tts = dynamic_cast<ITextToSpeechServer*>(server);
+        if (!tts) throw UnsupportedOperationException("Voice discovery", device_type_to_string(server->get_device_type()));
+        return tts->available_voices();
+    });
+}
+
 void Router::audio_speech(const json& request, httplib::DataSink& sink) {
     execute_streaming(request.dump(), sink, [&](WrappedServer* server) {
         if (server->get_model_type() != ModelType::TTS) {

@@ -13,7 +13,8 @@ COPY docs/ ./docs/
 COPY test/ ./test/
 COPY data/ ./data/
 COPY tools/ ./tools/
-RUN printf '2026.42.0-homelab.3\n' > .version && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_WEB_APP=ON -DBUILD_TAURI_APP=OFF && cmake --build build -j4 --target lemond lemonade web-app test_backend_mode_contract test_recipe_options_precedence test_recipe_arg_resolution test_request_cancellation test_process_manager test_homelab_ollama test_model_download_state && ctest --test-dir build --output-on-failure -R '^(BackendModeContractTest|RecipeOptionsPrecedence|RecipeArgResolutionTest|RequestCancellationTest|ProcessManagerTest|HomelabOllamaTest|ModelDownloadStateTest)$' && python3 test/homelab_model_metadata.py build/lemond && node test/homelab_recipe_options.cjs
+ARG SERVICE_VERSION=development
+RUN printf '2026.42.0-%s\n' "$SERVICE_VERSION" > .version && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_WEB_APP=ON -DBUILD_TAURI_APP=OFF && cmake --build build -j4 --target lemond lemonade web-app test_backend_mode_contract test_recipe_options_precedence test_recipe_arg_resolution test_request_cancellation test_process_manager test_homelab_ollama test_model_download_state test_consumer_service && ctest --test-dir build --output-on-failure -R '^(BackendModeContractTest|RecipeOptionsPrecedence|RecipeArgResolutionTest|RequestCancellationTest|ProcessManagerTest|HomelabOllamaTest|ModelDownloadStateTest|ConsumerServiceTest)$' && python3 test/homelab_native_service.py build/lemond && python3 test/homelab_model_metadata.py build/lemond && node test/homelab_recipe_options.cjs
 
 FROM ubuntu:26.04 AS speech-build
 ARG DEBIAN_FRONTEND=noninteractive
@@ -23,26 +24,23 @@ RUN git clone --recursive https://github.com/mudler/parakeet.cpp.git /src && cd 
 WORKDIR /src
 RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DPARAKEET_BUILD_SERVER=ON -DPARAKEET_BUILD_TESTS=ON && cmake --build build -j4 && ctest --test-dir build --output-on-failure -LE model && mkdir -p /out/bin /out/lib && cp build/examples/server/parakeet-server /out/bin/ && find build -name '*.so*' -exec cp -a '{}' /out/lib/ ';'
 
-FROM golang:1.27 AS interface-build
-WORKDIR /src
-COPY contrib/homelab/interface/ .
-RUN go test -race -timeout 60s ./... && go vet ./... && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/homelab-interface .
-
 FROM hybrid-runtime
 USER root
 ARG DEBIAN_FRONTEND=noninteractive
 ARG SOURCE_REVISION=unknown
-LABEL org.opencontainers.image.source="https://github.com/Nulifyer/lemonade-homelab" org.opencontainers.image.revision="${SOURCE_REVISION}"
+ARG SERVICE_VERSION=development
+LABEL org.opencontainers.image.source="https://github.com/Nulifyer/lemonade-homelab" org.opencontainers.image.revision="${SOURCE_REVISION}" org.opencontainers.image.version="${SERVICE_VERSION}" org.opencontainers.image.title="Lemonade AI service" org.opencontainers.image.description="Managed GPU/NPU models, inference APIs and English voice" org.opencontainers.image.documentation="https://github.com/Nulifyer/lemonade-homelab/blob/homelab-runtime/contrib/homelab/README.md"
 RUN sed -i 's|http://security.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g; s|http://archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::https::CAInfo=/etc/ssl/certs/ca-certificates.crt -o APT::Update::Error-Mode=any update && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::https::CAInfo=/etc/ssl/certs/ca-certificates.crt -o APT::Update::Error-Mode=any install -y --no-install-recommends libcurl4t64 libdrm2 unzip xz-utils zstd libreadline8t64 && rm -rf /var/lib/apt/lists/* && mkdir -p /opt/lemonade/.config/lemonade /opt/lemonade/.cache/huggingface /opt/lemonade/.cache/lemonade /opt/lemonade/llama /opt/lemonade/kv /run/lemonade && chown -R 10001:10001 /opt/lemonade /run/lemonade
 COPY --from=manager-build /src/build/lemond /src/build/lemonade /opt/lemonade/
 COPY --from=manager-build /src/build/resources/ /opt/lemonade/resources/
 COPY --from=speech-build /out/ /opt/parakeet/
-COPY --from=interface-build /out/homelab-interface /opt/lemonade/
+COPY contrib/homelab/container-defaults.json /opt/lemonade/service-defaults.json
 COPY --chmod=755 contrib/homelab/vulkan-server /opt/llama/vulkan-server
 RUN printf '#!/bin/sh\nexport LD_LIBRARY_PATH=/opt/parakeet/lib\nexec /opt/parakeet/bin/parakeet-server "$@"\n' > /opt/parakeet/parakeet-server && chmod 755 /opt/parakeet/parakeet-server
-ENV HOME=/opt/lemonade XDG_RUNTIME_DIR=/run/lemonade PATH=/opt/lemonade:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin LD_LIBRARY_PATH="" GGML_BACKEND_PATH=""
+ENV LEMONADE_DEFAULTS_PATH=/opt/lemonade/service-defaults.json HOME=/opt/lemonade XDG_RUNTIME_DIR=/run/lemonade PATH=/opt/lemonade:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin LD_LIBRARY_PATH="" GGML_BACKEND_PATH=""
 WORKDIR /opt/lemonade
 USER 10001:10001
 EXPOSE 13305 8080 10300
-ENTRYPOINT []
-CMD ["/opt/lemonade/lemond", "--host", "0.0.0.0"]
+HEALTHCHECK --interval=15s --timeout=7s --start-period=120s --retries=8 CMD ["curl", "--fail", "--silent", "--max-time", "6", "http://127.0.0.1:8080/ready"]
+ENTRYPOINT ["/opt/lemonade/lemond"]
+CMD ["--host", "0.0.0.0"]

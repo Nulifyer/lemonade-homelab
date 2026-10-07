@@ -52,6 +52,59 @@ When `lemond` starts, effective configuration is resolved by deep-merging settin
   "broadcast": true,
   "cloud_providers": [],
   "config_version": 2,
+  "consumer": {
+    "chat_url": "",
+    "console_url": "",
+    "critical_models": [
+      "small-task",
+      "speech-stt",
+      "speech-tts"
+    ],
+    "enabled": false,
+    "host": "0.0.0.0",
+    "inference_timeout_seconds": 1200,
+    "manager_url": "",
+    "max_inflight": 8,
+    "max_voice_clients": 16,
+    "port": 8080,
+    "presets": {
+      "agent-work": {
+        "frequency_penalty": 0,
+        "max_tokens": 2048,
+        "min_p": 0,
+        "presence_penalty": 0,
+        "repeat_penalty": 1,
+        "temperature": 0.6,
+        "top_k": 20,
+        "top_p": 0.95
+      },
+      "chat-roleplay": {
+        "frequency_penalty": 0,
+        "max_tokens": 1024,
+        "min_p": 0.05,
+        "presence_penalty": 0,
+        "repeat_penalty": 1.05,
+        "temperature": 1,
+        "top_k": 0,
+        "top_p": 0.95
+      },
+      "small-task": {
+        "frequency_penalty": 0,
+        "max_tokens": 256,
+        "min_p": 0,
+        "presence_penalty": 0,
+        "repeat_penalty": 1,
+        "temperature": 0,
+        "top_k": 20,
+        "top_p": 1
+      }
+    },
+    "public_url": "http://localhost:8080",
+    "reconcile_interval_seconds": 10,
+    "tts_voice": "af_heart",
+    "wyoming_host": "0.0.0.0",
+    "wyoming_port": 10300
+  },
   "ctx_size": -1,
   "default_model_source": "huggingface",
   "disable_model_filtering": false,

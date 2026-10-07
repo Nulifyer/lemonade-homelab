@@ -64,6 +64,7 @@ class ITextToSpeechServer : public virtual ICapability {
 public:
     virtual ~ITextToSpeechServer() = default;
     virtual void audio_speech(const json& request, httplib::DataSink& sink) = 0;
+    virtual json available_voices() { return {{"voices", json::array()}}; }
     virtual std::vector<std::string> supported_audio_formats() const { return {}; }
     // What the backend can emit while streaming, which is often narrower than the
     // buffered set — Kokoros hands back raw PCM on its streaming path whatever the

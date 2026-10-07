@@ -27,14 +27,26 @@ jobs:
         with:
           context: .
           file: contrib/homelab/Dockerfile
-          push: true
+          load: true
           tags: |
             ghcr.io/nulifyer/lemonade-homelab:${{ github.ref_name }}
             ghcr.io/nulifyer/lemonade-homelab:latest
-          build-args: SOURCE_REVISION=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - run: echo '${{ steps.image.outputs.digest }}' > image-digest.txt
+          build-args: |
+            SOURCE_REVISION=${{ github.sha }}
+            SERVICE_VERSION=${{ github.ref_name }}
+          cache-from: type=registry,ref=ghcr.io/nulifyer/lemonade-homelab:buildcache
+          cache-to: type=registry,ref=ghcr.io/nulifyer/lemonade-homelab:buildcache,mode=max
+      - name: Verify the default container service
+        env:
+          RELEASE_IMAGE: ghcr.io/nulifyer/lemonade-homelab:${{ github.ref_name }}
+        run: bash contrib/homelab/test-service.sh "$RELEASE_IMAGE"
+      - name: Publish the accepted image
+        env:
+          RELEASE_IMAGE: ghcr.io/nulifyer/lemonade-homelab:${{ github.ref_name }}
+        run: |
+          docker push "$RELEASE_IMAGE"
+          docker push ghcr.io/nulifyer/lemonade-homelab:latest
+          docker inspect --format '{{index .RepoDigests 0}}' "$RELEASE_IMAGE" | cut -d@ -f2 > image-digest.txt
       - uses: actions/upload-artifact@v4
         with:
           name: image-digest

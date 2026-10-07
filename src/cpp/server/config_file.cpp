@@ -1,4 +1,5 @@
 #include "lemon/config_file.h"
+#include "lemon/consumer_service.h"
 #include "lemon/backends/backend_descriptor_registry.h"
 #include "lemon/utils/json_utils.h"
 #include "lemon/utils/path_utils.h"
@@ -48,6 +49,8 @@ static json normalize_legacy_keys(json obj) {
 json ConfigFile::base_defaults() {
     json defaults = load_json_file(utils::path_from_utf8(
         utils::get_resource_path("resources/defaults.json")));
+
+    defaults["consumer"] = ConsumerConfig::defaults();
 
     // Seed each backend's config.json section from its descriptor.
     // resources/defaults.json is the generated, committed mirror; re-seeding here

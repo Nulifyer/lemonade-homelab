@@ -1,9 +1,9 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "title": "Homelab model services",
-    "version": "0.1.7",
-    "description": "One inference interface with stable model roles. Explicit client sampling values override presets. Model administration belongs to Lemonade. Wyoming speech uses the private ai-voice:10300 endpoint."
+    "title": "Lemonade model services",
+    "version": "1",
+    "description": "Native consumer APIs share Lemonade model state and saved configuration. Explicit client sampling values override presets. Model administration uses the manager listener. Wyoming is private."
   },
   "servers": [],
   "security": [],
@@ -531,6 +531,123 @@
           },
           "502": {
             "description": "Backend unavailable. Start a fresh request."
+          }
+        }
+      }
+    },
+    "/api/v0/service": {
+      "get": {
+        "summary": "Active native consumer configuration, model role targets and capability metadata",
+        "responses": {
+          "200": {
+            "description": "Native service response"
+          },
+          "503": {
+            "description": "Critical model unavailable or service disabled"
+          }
+        }
+      }
+    },
+    "/api/v1/service": {
+      "get": {
+        "summary": "Active native consumer configuration, model role targets and capability metadata",
+        "responses": {
+          "200": {
+            "description": "Native service response"
+          },
+          "503": {
+            "description": "Critical model unavailable or service disabled"
+          }
+        }
+      }
+    },
+    "/v0/service": {
+      "get": {
+        "summary": "Active native consumer configuration, model role targets and capability metadata",
+        "responses": {
+          "200": {
+            "description": "Native service response"
+          },
+          "503": {
+            "description": "Critical model unavailable or service disabled"
+          }
+        }
+      }
+    },
+    "/v1/service": {
+      "get": {
+        "summary": "Active native consumer configuration, model role targets and capability metadata",
+        "responses": {
+          "200": {
+            "description": "Native service response"
+          },
+          "503": {
+            "description": "Critical model unavailable or service disabled"
+          }
+        }
+      }
+    },
+    "/api/v0/ready": {
+      "get": {
+        "summary": "Critical model readiness; busy backends remain healthy",
+        "responses": {
+          "200": {
+            "description": "Native service response"
+          },
+          "503": {
+            "description": "Critical model unavailable or service disabled"
+          }
+        }
+      }
+    },
+    "/api/v1/ready": {
+      "get": {
+        "summary": "Critical model readiness; busy backends remain healthy",
+        "responses": {
+          "200": {
+            "description": "Native service response"
+          },
+          "503": {
+            "description": "Critical model unavailable or service disabled"
+          }
+        }
+      }
+    },
+    "/v0/ready": {
+      "get": {
+        "summary": "Critical model readiness; busy backends remain healthy",
+        "responses": {
+          "200": {
+            "description": "Native service response"
+          },
+          "503": {
+            "description": "Critical model unavailable or service disabled"
+          }
+        }
+      }
+    },
+    "/v1/ready": {
+      "get": {
+        "summary": "Critical model readiness; busy backends remain healthy",
+        "responses": {
+          "200": {
+            "description": "Native service response"
+          },
+          "503": {
+            "description": "Critical model unavailable or service disabled"
+          }
+        }
+      }
+    },
+    "/v1/audio/voices": {
+      "get": {
+        "summary": "Installed English voices with IDs, descriptions, languages and default selection",
+        "responses": {
+          "200": {
+            "description": "Runtime voice catalog"
+          },
+          "503": {
+            "description": "TTS backend unavailable"
           }
         }
       }
