@@ -52,6 +52,14 @@ public:
     // ITokenizerServer implementation
     json tokenize(const json& request) override;
 
+protected:
+    struct RuntimeLaunch {
+        std::string executable;
+        DeviceType device;
+        std::vector<std::pair<std::string, std::string>> environment;
+    };
+    virtual RuntimeLaunch prepare_runtime(const std::string& backend, const RecipeOptions& options);
+
 private:
     // llama-server echoes the local .gguf path it was launched with (`-m <path>`)
     // in the OpenAI `model` field. Rewrite it to the client-facing model id so

@@ -1,0 +1,7 @@
+.git
+build/
+build-local/
+**/node_modules/
+**/target/
+**/__pycache__/
+.env

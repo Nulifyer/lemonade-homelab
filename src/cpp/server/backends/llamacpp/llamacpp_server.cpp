@@ -293,10 +293,8 @@ void LlamaCppServer::load(const std::string& model_name,
     bool use_gpu = (llamacpp_backend != "cpu");
 
     // Update device type based on the actual backend selected.
-    device_type_ = use_gpu ? DEVICE_GPU : DEVICE_CPU;
-
-    // Install llama-server if needed (use per-model backend)
-    backend_manager_->install_backend(llamacpp::spec()->recipe, llamacpp_backend);
+    RuntimeLaunch runtime = prepare_runtime(llamacpp_backend, options);
+    device_type_ = runtime.device;
 
     // Use pre-resolved GGUF path. Skipped for hf_load models because llama-server
     // sources the weights itself via -hf; those models may not have local files.
@@ -315,7 +313,7 @@ void LlamaCppServer::load(const std::string& model_name,
 
     port_ = choose_port();
 
-    std::string executable = BackendUtils::get_backend_binary_path(*llamacpp::spec(), llamacpp_backend);
+    std::string executable = runtime.executable;
 
     bool supports_embeddings = (model_info.type == ModelType::EMBEDDING);
     bool supports_reranking = (model_info.type == ModelType::RERANKING);
@@ -410,7 +408,7 @@ void LlamaCppServer::load(const std::string& model_name,
     LOG(INFO, "LlamaCpp") << "Starting llama-server..." << std::endl;
 
     // For ROCm on Linux, set LD_LIBRARY_PATH to include the ROCm library directory
-    std::vector<std::pair<std::string, std::string>> env_vars;
+    std::vector<std::pair<std::string, std::string>> env_vars = runtime.environment;
 #ifndef _WIN32
     if (is_llamacpp_rocm_backend(llamacpp_backend)) {
         // Get the directory containing the executable (where ROCm .so files are)
@@ -596,6 +594,14 @@ void LlamaCppServer::unload() {
     if (has_process_handle(handle)) {
         ProcessManager::stop_process(handle);
     }
+}
+
+LlamaCppServer::RuntimeLaunch LlamaCppServer::prepare_runtime(
+    const std::string& backend, const RecipeOptions& options) {
+    (void)options;
+    backend_manager_->install_backend(llamacpp::spec()->recipe, backend);
+    return {BackendUtils::get_backend_binary_path(*llamacpp::spec(), backend),
+            backend == "cpu" ? DEVICE_CPU : DEVICE_GPU, {}};
 }
 
 json LlamaCppServer::normalize_response_model(json response, const json& request) const {

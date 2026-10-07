@@ -11,8 +11,10 @@ const RECIPE_PRIORITY = [
   'kokoro',
   'llamacpp',
   'moonshine',
+  'hybrid',
   'onnxruntime',
   'openmoss',
+  'parakeet',
   'ryzenai-llm',
   'sd-cpp',
   'thenoise',
@@ -24,6 +26,8 @@ const RECIPE_PRIORITY = [
 
 const RECIPE_DISPLAY_NAMES = {
   llamacpp: 'llama.cpp GPU',
+  hybrid: 'Native XDNA2 hybrid',
+  parakeet: 'Parakeet Redux C++ CPU',
   'llamacpp-hrx': 'HRX GPU (experimental)',
   whispercpp: 'whisper.cpp',
   'sd-cpp': 'stable-diffusion.cpp',

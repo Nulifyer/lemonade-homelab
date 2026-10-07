@@ -203,5 +203,11 @@
     "vulkan": "v0.3.0",
     "cuda": "v0.3.0"
   },
-  "clear_bin_if_lemonade_below": "9.4.0"
+  "clear_bin_if_lemonade_below": "9.4.0",
+  "hybrid": {
+    "npu": "linux-v0.2.0"
+  },
+  "parakeet": {
+    "cpu": "v0.6.0"
+  }
 }

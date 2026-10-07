@@ -180,6 +180,8 @@ include(GNUInstallDirs)
 set(LEMON_BACKENDS
     # "<recipe>|<stem>"
     "llamacpp|llamacpp"
+    "hybrid|hybrid"
+    "parakeet|parakeet"
     "llamacpp-hrx|hrx"
     "whispercpp|whispercpp"
     "moonshine|moonshine"

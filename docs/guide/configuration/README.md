@@ -71,6 +71,11 @@ When `lemond` starts, effective configuration is resolved by deep-merging settin
     "args": "",
     "hrx_bin": "builtin"
   },
+  "hybrid": {
+    "args": "",
+    "npu_bin": "builtin",
+    "prefer_system": false
+  },
   "inhibit_suspend": true,
   "kokoro": {
     "cpu_bin": "builtin"
@@ -109,6 +114,9 @@ When `lemond` starts, effective configuration is resolved by deep-merging settin
     "backend": "auto",
     "cuda_bin": "builtin",
     "vulkan_bin": "builtin"
+  },
+  "parakeet": {
+    "cpu_bin": "builtin"
   },
   "port": 13305,
   "rocm_channel": "stable",

@@ -382,6 +382,22 @@ The following options are available depending on the recipe being used:
 | `--llamacpp-device DEVICES` | Comma-separated list of accelerator devices to use (e.g. Vulkan0) | `""` |
 | `--llamacpp-args ARGS` | Custom arguments to pass to llama-server | `""` |
 
+#### Native XDNA2 prefill / Vulkan decode (`hybrid` recipe)
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--ctx-size SIZE` | Context size for the model | auto |
+| `--llamacpp BACKEND` | LlamaCpp backend to use | `system` |
+| `--llamacpp-device DEVICES` | Comma-separated list of accelerator devices to use (e.g. Vulkan0) | `""` |
+| `--llamacpp-args ARGS` | Custom arguments to pass to llama-server | `""` |
+| `--hybrid-copy-gib SIZE` | Maximum prepared NPU weight copies in GiB | `8` |
+
+#### Parakeet Redux C++ CPU (`parakeet` recipe)
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--parakeet-threads SIZE` | CPU transcription threads | `4` |
+
 #### HRX GPU (experimental) (`llamacpp-hrx` recipe)
 
 | Option | Description | Default |

@@ -12,12 +12,14 @@ the generator instead. Prose outside the markers is preserved. -->
 | `acestep` | ACE-Step | yes | no | cuda, rocm, vulkan |
 | `ds4` | DwarfStar4 (experimental) | no | yes | rocm |
 | `flm` | FastFlowLM NPU | no | yes | npu |
+| `hybrid` | Native XDNA2 prefill / Vulkan decode | no | yes | npu |
 | `kokoro` | Kokoro | no | no | cpu, metal |
 | `llamacpp` | Llama.cpp GPU | yes | yes | cpu, cuda, metal, rocm, system, vulkan |
 | `llamacpp-hrx` | HRX GPU (experimental) | no | yes | hrx |
 | `moonshine` | Moonshine | no | no | cpu |
 | `onnxruntime` | ONNX Runtime | no | no | cpu |
 | `openmoss` | OpenMOSS TTS | yes | no | cuda, vulkan |
+| `parakeet` | Parakeet Redux C++ CPU | no | no | cpu |
 | `ryzenai-llm` | Ryzen AI LLM | no | yes | npu |
 | `sd-cpp` | StableDiffusion.cpp | yes | no | cpu, cuda, metal, rocm, vulkan |
 | `thenoise` | TheNoise ROCm | yes | no | rocm |
@@ -37,6 +39,7 @@ the generator instead. Prose outside the markers is preserved. -->
 | `acestep` | rocm | linux, windows | amd_gpu (gfx103X, gfx110X, gfx1150, gfx1151, gfx1152, gfx120X) |
 | `ds4` | rocm | linux | amd_gpu (gfx1151) |
 | `flm` | npu | linux, windows | amd_npu (XDNA2) |
+| `hybrid` | npu | linux | amd_gpu (gfx1150); amd_npu (XDNA2) |
 | `kokoro` | metal | macos | metal |
 | `kokoro` | cpu | linux, windows | cpu (x86_64) |
 | `llamacpp` | system | linux | cpu (arm64, x86_64) |
@@ -54,6 +57,7 @@ the generator instead. Prose outside the markers is preserved. -->
 | `onnxruntime` | cpu | macos | cpu (arm64) |
 | `openmoss` | cuda | linux, windows | nvidia_gpu |
 | `openmoss` | vulkan | linux, windows | amd_gpu; cpu (x86_64); nvidia_gpu |
+| `parakeet` | cpu | linux | cpu (x86_64) |
 | `ryzenai-llm` | npu | windows | amd_npu (XDNA2) |
 | `sd-cpp` | metal | macos | metal |
 | `sd-cpp` | cuda | linux, windows | nvidia_gpu (sm_100, sm_120, sm_121, sm_75, sm_80, sm_86, sm_89, sm_90) |
@@ -105,6 +109,16 @@ the generator instead. Prose outside the markers is preserved. -->
 | `ctx_size` | `--ctx-size` | SIZE | -1 | Context size for the model |
 | `flm_args` | `--flm-args` | ARGS | "" | Safe flm serve tuning args: --pmode, --prefill-chunk-len, --img-pre-resize, --socket, --q-len, --preemption |
 
+#### `hybrid` — Native XDNA2 prefill / Vulkan decode
+
+| Option | CLI flag | Type | Default | Description |
+|--------|----------|------|---------|-------------|
+| `ctx_size` | `--ctx-size` | SIZE | -1 | Context size for the model |
+| `llamacpp_backend` | `--llamacpp` | BACKEND | system | LlamaCpp backend to use |
+| `llamacpp_device` | `--llamacpp-device` | DEVICES | "" | Comma-separated list of accelerator devices to use (e.g. Vulkan0) |
+| `llamacpp_args` | `--llamacpp-args` | ARGS | "" | Custom arguments to pass to llama-server |
+| `hybrid_copy_gib` | `--hybrid-copy-gib` | SIZE | 8 | Maximum prepared NPU weight copies in GiB |
+
 #### `llamacpp` — Llama.cpp GPU
 
 | Option | CLI flag | Type | Default | Description |
@@ -138,6 +152,12 @@ the generator instead. Prose outside the markers is preserved. -->
 | Option | CLI flag | Type | Default | Description |
 |--------|----------|------|---------|-------------|
 | `openmoss_backend` | `--openmoss` | BACKEND | "" | OpenMOSS TTS backend to use |
+
+#### `parakeet` — Parakeet Redux C++ CPU
+
+| Option | CLI flag | Type | Default | Description |
+|--------|----------|------|---------|-------------|
+| `parakeet_threads` | `--parakeet-threads` | SIZE | 4 | CPU transcription threads |
 
 #### `sd-cpp` — StableDiffusion.cpp
 

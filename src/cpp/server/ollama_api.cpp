@@ -122,10 +122,14 @@ struct OptionMapping { const char* ollama_key; const char* openai_key; };
 static const OptionMapping OPTION_MAPPINGS[] = {
     {"temperature",    "temperature"},
     {"top_p",          "top_p"},
+    {"top_k",          "top_k"},
+    {"min_p",          "min_p"},
     {"seed",           "seed"},
     {"stop",           "stop"},
     {"num_predict",    "max_tokens"},
-    {"repeat_penalty", "frequency_penalty"},
+    {"repeat_penalty", "repeat_penalty"},
+    {"presence_penalty", "presence_penalty"},
+    {"frequency_penalty", "frequency_penalty"},
 };
 
 // Apply the option mappings from an Ollama request to an OpenAI request.
