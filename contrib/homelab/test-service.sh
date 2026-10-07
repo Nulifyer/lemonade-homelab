@@ -26,7 +26,7 @@ if [[ "$ready" != true ]]; then
     docker logs "$container"
     exit 1
 fi
-docker exec "$container" curl --fail --silent http://127.0.0.1:8080/v1/models | python3 -c 'import json,sys; assert len(json.load(sys.stdin)["data"])==5'
+docker exec "$container" curl --fail --silent http://127.0.0.1:8080/v1/models | python3 -c 'import json,sys; models={m["id"]:m for m in json.load(sys.stdin)["data"]}; assert set(models)=={"small-task","chat-roleplay","agent-work","speech-stt","speech-tts","image-generation"}; assert not models["image-generation"]["available"]'
 docker exec "$container" curl --fail --silent http://127.0.0.1:13305/v1/service | python3 -c 'import json,sys; assert json.load(sys.stdin)["configuration"]["critical_models"]==[]'
 [[ $(docker exec "$container" cat /proc/1/comm) == lemond ]]
 docker stop --time 110 "$container" >/dev/null
