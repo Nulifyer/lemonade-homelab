@@ -153,8 +153,9 @@ static void map_ollama_options(const json& ollama_request, json& openai_req) {
     }
 }
 
-OllamaApi::OllamaApi(Router* router, ModelManager* model_manager)
-    : router_(router), model_manager_(model_manager) {
+OllamaApi::OllamaApi(Router* router, ModelManager* model_manager,
+                     std::function<std::string(const std::string&)> model_resolver)
+    : router_(router), model_manager_(model_manager), model_resolver_(std::move(model_resolver)) {
 }
 
 void OllamaApi::register_routes(httplib::Server& server) {
@@ -231,11 +232,12 @@ void OllamaApi::register_routes(httplib::Server& server) {
 // ============================================================================
 std::string OllamaApi::normalize_model_name(const std::string& name) {
     const std::string suffix = ":latest";
+    std::string normalized = name;
     if (name.size() > suffix.size() &&
         name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0) {
-        return name.substr(0, name.size() - suffix.size());
+        normalized = name.substr(0, name.size() - suffix.size());
     }
-    return name;
+    return model_resolver_ ? model_resolver_(normalized) : normalized;
 }
 
 // ============================================================================

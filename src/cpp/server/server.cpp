@@ -1445,7 +1445,8 @@ void Server::setup_routes(httplib::Server &web_server) {
     });
 
     // Register Ollama-compatible API routes
-    auto ollama_api = std::make_shared<OllamaApi>(router_.get(), model_manager_.get());
+    auto ollama_api = std::make_shared<OllamaApi>(router_.get(), model_manager_.get(),
+        [this](const std::string& name) { return resolve_alias_target(name); });
     ollama_api->register_routes(web_server);
 
     // Register MCP gateway (POST /mcp). NOTE: /mcp is an INTENTIONAL EXCEPTION

@@ -2460,6 +2460,13 @@ if(BUILD_TESTING AND EXISTS "${_GGUF_SHARD_TEST_SRC}")
     add_cpp_ci_test(GgufShardUtilsTest CI ON COMMAND test_gguf_shard_utils)
 endif()
 
+# Ollama aliases and request sampling conversion.
+if(BUILD_TESTING)
+    add_executable(test_homelab_ollama test/cpp/test_homelab_ollama.cpp)
+    target_link_libraries(test_homelab_ollama PRIVATE lemonade-server-core)
+    add_cpp_ci_test(HomelabOllamaTest CI ON COMMAND test_homelab_ollama)
+endif()
+
 # Per-model artifact selection and snapshot baselines used to decide whether an
 # upstream commit actually touches a downloaded model.
 set(_HF_UPDATE_CHECK_TEST_SRC

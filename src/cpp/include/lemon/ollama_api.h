@@ -16,14 +16,17 @@ using json = nlohmann::json;
 
 class OllamaApi : public std::enable_shared_from_this<OllamaApi> {
 public:
-    OllamaApi(Router* router, ModelManager* model_manager);
+    OllamaApi(Router* router, ModelManager* model_manager,
+              std::function<std::string(const std::string&)> model_resolver = {});
 
     // Must be called on a shared_ptr instance (uses shared_from_this internally)
     void register_routes(httplib::Server& server);
 
 private:
+    friend struct OllamaApiTestAccess;
     Router* router_;
     ModelManager* model_manager_;
+    std::function<std::string(const std::string&)> model_resolver_;
 
     // Endpoint handlers
     void handle_chat(const httplib::Request& req, httplib::Response& res);
