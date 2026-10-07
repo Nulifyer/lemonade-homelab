@@ -294,3 +294,91 @@ func TestSpeechAdmission(t *testing.T) {
 		t.Fatal("unbounded speech admission")
 	}
 }
+
+func TestNoAuthConfig(t *testing.T) {
+	t.Setenv("LEMONADE_URL", "http://lemonade:13305")
+	for _, name := range []string{"LEMONADE_BACKEND_KEY", "HA_API_KEY", "LUNCHLOXS_API_KEY", "ROLEPLAY_API_KEY", "GENERAL_API_KEY"} {
+		t.Setenv(name, "")
+	}
+	t.Setenv("AUTH_MODE", "none")
+	c, err := readConfig()
+	if err != nil || !c.noAuth || c.backendKey != "" {
+		t.Fatalf("key-free configuration: %v", err)
+	}
+	t.Setenv("AUTH_MODE", "keys")
+	if _, err := readConfig(); err == nil {
+		t.Fatal("key mode accepted missing credentials")
+	}
+	t.Setenv("AUTH_MODE", "invalid")
+	if _, err := readConfig(); err == nil {
+		t.Fatal("invalid mode accepted")
+	}
+}
+
+func TestNoAuthInference(t *testing.T) {
+	var calls atomic.Int64
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.Header.Get("Authorization") != "" || r.Header.Get("X-Api-Key") != "" {
+			t.Error("client credentials forwarded to key-free backend")
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if r.URL.Path == "/api/v1/chat/completions" && (body["temperature"] != 0.9 || body["min_p"] != 0.05) {
+			t.Error("client temperature or roleplay preset lost", body)
+		}
+		writeJSON(w, 200, map[string]bool{"ok": true})
+	}))
+	defer backend.Close()
+	u, _ := url.Parse(backend.URL)
+	s := newService(config{upstream: u, noAuth: true})
+	for _, tc := range []struct {
+		method, path, body string
+		status             int
+	}{
+		{"GET", "/v1/models", "", 200},
+		{"GET", "/api/tags", "", 200},
+		{"POST", "/v1/chat/completions", `{"model":"chat-roleplay","messages":[],"temperature":0.9}`, 200},
+		{"POST", "/api/chat", `{"model":"small-task:latest","messages":[]}`, 200},
+		{"POST", "/v1/audio/speech", `{"model":"speech-tts","input":"Hello"}`, 200},
+		{"POST", "/v1/chat/completions", `{"model":"unregistered"}`, 403},
+		{"POST", "/api/pull", `{"model":"small-task"}`, 403},
+		{"POST", "/internal/config", `{}`, 403},
+	} {
+		for _, header := range []string{"", "Bearer obsolete-client-key"} {
+			r := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+			r.Header.Set("Content-Type", "application/json")
+			r.Header.Set("Authorization", header)
+			r.Header.Set("X-Api-Key", "obsolete-client-key")
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, r)
+			if w.Code != tc.status {
+				t.Fatalf("%s got %d want %d: %s", tc.path, w.Code, tc.status, w.Body.String())
+			}
+			if tc.method == "GET" && (!strings.Contains(w.Body.String(), "agent-work") || !strings.Contains(w.Body.String(), "chat-roleplay")) {
+				t.Fatal("discovery omitted approved aliases")
+			}
+		}
+	}
+	if calls.Load() != 6 {
+		t.Fatalf("unexpected backend calls: %d", calls.Load())
+	}
+}
+
+func TestNoAuthWyomingBackend(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			t.Error("speech sent credentials to key-free backend")
+		}
+		_, _ = io.WriteString(w, "speech response")
+	}))
+	defer backend.Close()
+	u, _ := url.Parse(backend.URL)
+	s := newService(config{upstream: u, noAuth: true})
+	b, err := s.speechRequest(context.Background(), "/api/v1/audio/speech", "application/json", []byte(`{}`), s.tts)
+	if err != nil || string(b) != "speech response" {
+		t.Fatalf("speech failed: %v", err)
+	}
+}

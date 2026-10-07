@@ -248,7 +248,9 @@ func (s *service) speechRequest(ctx context.Context, path, contentType string, b
 		return nil, err
 	}
 	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("Authorization", "Bearer "+s.cfg.backendKey)
+	if s.cfg.backendKey != "" {
+		req.Header.Set("Authorization", "Bearer "+s.cfg.backendKey)
+	}
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, err

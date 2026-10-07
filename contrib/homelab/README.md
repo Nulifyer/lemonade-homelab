@@ -21,8 +21,15 @@ Configure `llamacpp.vulkan_bin` as `/opt/llama/vulkan-server` to isolate the GPU
 Each hybrid model stores `hybrid_copy_gib`, `ctx_size` and `llamacpp_args` in its recipe options.
 Do not run an independent FLM or standalone hybrid stack alongside this manager's NPU workloads.
 
-The interface requires `LEMONADE_URL`, `LEMONADE_BACKEND_KEY`, `HA_API_KEY`, `LUNCHLOXS_API_KEY`,
-`ROLEPLAY_API_KEY` and `GENERAL_API_KEY`. Consumer keys must be distinct and at least 32 characters.
+Set `LEMONADE_URL` and `AUTH_MODE=none` for LAN clients that do not use API keys.
+Remove `LEMONADE_API_KEY` and `LEMONADE_ADMIN_API_KEY` from the manager environment.
+Leave `LEMONADE_BACKEND_KEY` and consumer keys unset. All five model aliases become
+available without credentials. Inference admission, presets and administration
+route restrictions remain active. Client Authorization headers are discarded.
+
+`AUTH_MODE=keys` (the default) requires `LEMONADE_BACKEND_KEY`, `HA_API_KEY`,
+`LUNCHLOXS_API_KEY`, `ROLEPLAY_API_KEY` and `GENERAL_API_KEY`.
+Consumer keys must be distinct and at least 32 characters.
 The default utility voice is `af_heart`. Use the tested `TTS_VOICE` value from the deployment manifest.
 `interface/presets.json` owns sampling defaults for each role. The interface fills missing
 temperature, top-p, top-k, min-p and penalty fields; explicit client values win.

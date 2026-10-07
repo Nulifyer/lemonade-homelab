@@ -24,6 +24,7 @@ import (
 type config struct {
 	upstream            *url.URL
 	backendKey          string
+	noAuth              bool
 	clients             map[string]map[string]bool
 	voice               string
 	httpAddr, voiceAddr string
@@ -52,25 +53,34 @@ func readConfig() (config, error) {
 			return c, errors.New("INFERENCE_TIMEOUT must be between 15s and 30m")
 		}
 	}
-	for _, p := range []struct {
-		env    string
-		models []string
-	}{{"HA_API_KEY", []string{"small-task"}}, {"LUNCHLOXS_API_KEY", []string{"agent-work", "small-task"}}, {"ROLEPLAY_API_KEY", []string{"chat-roleplay"}}, {"GENERAL_API_KEY", []string{"small-task", "agent-work", "chat-roleplay", "speech-stt", "speech-tts"}}} {
-		key := os.Getenv(p.env)
-		if len(key) < 32 {
-			return c, errors.New(p.env + " must contain at least 32 characters")
-		}
-		if _, ok := c.clients[key]; ok {
-			return c, errors.New("consumer keys must be distinct")
-		}
-		roles := map[string]bool{}
-		for _, m := range p.models {
-			roles[m] = true
-		}
-		c.clients[key] = roles
+	switch os.Getenv("AUTH_MODE") {
+	case "", "keys":
+	case "none":
+		c.noAuth = true
+	default:
+		return c, errors.New("AUTH_MODE must be keys or none")
 	}
-	if len(c.backendKey) < 32 {
-		return c, errors.New("LEMONADE_BACKEND_KEY is required")
+	if !c.noAuth {
+		for _, p := range []struct {
+			env    string
+			models []string
+		}{{"HA_API_KEY", []string{"small-task"}}, {"LUNCHLOXS_API_KEY", []string{"agent-work", "small-task"}}, {"ROLEPLAY_API_KEY", []string{"chat-roleplay"}}, {"GENERAL_API_KEY", []string{"small-task", "agent-work", "chat-roleplay", "speech-stt", "speech-tts"}}} {
+			key := os.Getenv(p.env)
+			if len(key) < 32 {
+				return c, errors.New(p.env + " must contain at least 32 characters")
+			}
+			if _, ok := c.clients[key]; ok {
+				return c, errors.New("consumer keys must be distinct")
+			}
+			roles := map[string]bool{}
+			for _, m := range p.models {
+				roles[m] = true
+			}
+			c.clients[key] = roles
+		}
+		if len(c.backendKey) < 32 {
+			return c, errors.New("LEMONADE_BACKEND_KEY is required")
+		}
 	}
 	if v := os.Getenv("TTS_VOICE"); v != "" {
 		c.voice = v
@@ -92,7 +102,10 @@ func newService(c config) *service {
 	s := &service{cfg: c, client: &http.Client{Transport: transport, Timeout: 70 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, stt: make(chan struct{}, 1), tts: make(chan struct{}, 1), admitted: make(chan struct{}, 8), voiceClients: make(chan struct{}, 16)}
 	s.proxy = &httputil.ReverseProxy{Transport: transport, FlushInterval: -1, Rewrite: func(pr *httputil.ProxyRequest) {
 		pr.SetURL(c.upstream)
-		pr.Out.Header.Set("Authorization", "Bearer "+c.backendKey)
+		pr.Out.Header.Del("Authorization")
+		if c.backendKey != "" {
+			pr.Out.Header.Set("Authorization", "Bearer "+c.backendKey)
+		}
 		pr.Out.Header.Del("Cookie")
 		pr.Out.Header.Del("Proxy-Authorization")
 		pr.Out.Header.Del("X-Api-Key")
@@ -104,6 +117,9 @@ func newService(c config) *service {
 }
 
 func (s *service) authorized(r *http.Request) map[string]bool {
+	if s.cfg.noAuth {
+		return map[string]bool{"small-task": true, "chat-roleplay": true, "agent-work": true, "speech-stt": true, "speech-tts": true}
+	}
 	value := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	for key, models := range s.cfg.clients {
 		if subtle.ConstantTimeCompare([]byte(key), []byte(value)) == 1 {
