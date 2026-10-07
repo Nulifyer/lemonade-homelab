@@ -9,7 +9,9 @@ in the shared configuration. All consumer listener settings are in the native
 checkpoint/capability metadata and critical readiness. `GET ready` returns 200
 only when every critical role resolves to a loaded, alive, healthy and pinned
 backend. Both `ready` and `busy` are healthy. A missing, dead or failed backend
-returns 503. An empty critical list disables automatic model startup.
+returns 503. Readiness matches the canonical `model_id` in Router health against
+resolved registry IDs. The display `model_name` can differ for custom models.
+An empty critical list disables automatic model startup.
 
 Register both endpoints under `/api/v0/`, `/api/v1/`, `/v0/` and `/v1/` on the
 manager and consumer listeners. The consumer also retains `/ready`, `/health`,
@@ -44,3 +46,10 @@ the backend voice names; the consumer returns English voice descriptors and the
 configured default. Wyoming uses these installed IDs, languages and descriptions
 and passes the caller's selected voice through to synthesis. No missing voice
 is silently replaced. Home Assistant displays `description` as the voice name.
+
+For inline Compose configuration, mount deployment defaults separately and set
+`LEMONADE_DEFAULTS_PATH` to that JSON file. Defaults merge below persisted
+`config.json` values. Keep the persistent configuration directory writable so
+manager changes can save atomically. A read-only bind over `config.json` prevents
+normal configuration updates. `consumer.critical_models` owns startup loading
+and recovery without an init container. It never downloads missing weights.

@@ -697,7 +697,7 @@ Server::Server(std::shared_ptr<RuntimeConfig> config,
             const auto name = model_manager_->resolve_model_name(resolve_alias_target(role));
             for (const auto& model : router_->get_all_loaded_models()) {
                 const auto health = model.value("backend_health", "");
-                if (model.value("model_name", "") == name && model.value("loaded", false) &&
+                if (model.value("model_id", "") == name && model.value("loaded", false) &&
                     model.value("backend_alive", false) && (health == "ready" || health == "busy")) {
                     if (!model.value("pinned", false)) router_->set_model_pinned(name, true);
                     return;

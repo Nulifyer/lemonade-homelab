@@ -1,5 +1,12 @@
 #include "lemon/consumer_service.h"
+#include "lemon/model_manager.h"
+#include "lemon/router.h"
 #include "lemon/runtime_config.h"
+#include "lemon/utils/path_utils.h"
+#include "lemon/wrapped_server.h"
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <mutex>
 #include <stdexcept>
@@ -101,6 +108,75 @@ std::string make_wav(bool floating = false, bool nonfinite = false) {
     return b;
 }
 #endif
+namespace lemon {
+class IdentityTestServer : public WrappedServer {
+  public:
+    explicit IdentityTestServer(const std::string &name)
+        : WrappedServer("stub", "error", nullptr, nullptr) {
+        set_model_metadata(name, "", ModelType::LLM, DEVICE_CPU, RecipeOptions());
+        set_state(ModelState::READY);
+        set_pinned(true);
+    }
+    void load(const std::string &, const ModelInfo &, const RecipeOptions &, bool) override {}
+    void unload() override {}
+    bool is_backend_alive() const override { return true; }
+    std::string get_backend_health_state() const override { return "busy"; }
+};
+struct RoutingHelperTestHook {
+    static void add_server(Router &router, const std::string &name) {
+        std::lock_guard lock(router.load_mutex_);
+        router.loaded_servers_.push_back(std::make_unique<IdentityTestServer>(name));
+    }
+};
+}
+void model_identity_contract() {
+    namespace fs = std::filesystem;
+    const auto root = fs::temp_directory_path() /
+        ("consumer_identity_" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(root);
+    lemon::utils::set_cache_dir(root.string());
+    lemon::utils::set_config_dir(root.string());
+    lemon::utils::set_models_dir(root.string());
+    {
+        std::ofstream(root / "user_models.json") << json{
+            {"HA-Test", {{"checkpoint", "org/test:model.gguf"}, {"recipe", "llamacpp"}}}
+        }.dump();
+        lemon::ModelManager models;
+        const auto canonical = models.resolve_model_name("HA-Test");
+        check(canonical == "user.HA-Test", "Actual registry namespace not exercised");
+        check(models.get_public_model_name(canonical) == "HA-Test",
+              "Actual display-name mapping not exercised");
+        lemon::RuntimeConfig runtime({{"max_loaded_models", 3}, {"log_level", "error"}});
+        lemon::RuntimeConfig::set_global(&runtime);
+        {
+            lemon::Router router(&runtime, &models, nullptr);
+            lemon::RoutingHelperTestHook::add_server(router, canonical);
+            auto loaded = router.get_all_loaded_models();
+            check(loaded.size() == 1 && loaded[0]["model_name"] == "HA-Test" &&
+                      loaded[0]["model_id"] == canonical,
+                  "Router health lost canonical model identity");
+            ConsumerService::Manager manager;
+            manager.health = [&] { return router.get_all_loaded_models(); };
+            manager.metadata = [&](const std::string &) {
+                return json{{"id", "user.HA-Test"},
+                            {"runtime_name", models.resolve_model_name("HA-Test")}};
+            };
+            ConsumerService service(lemon::ConsumerConfig::parse(
+                {{"critical_models", {"small-task"}}}), manager);
+            check(service.readiness()["ready"].get<bool>(),
+                  "Readiness disagrees with actual registry/Router identity");
+            loaded[0]["model_id"] = "user.Other-Test";
+            manager.health = [&] { return loaded; };
+            ConsumerService mismatched(lemon::ConsumerConfig::parse(
+                {{"critical_models", {"small-task"}}}), manager);
+            check(!mismatched.readiness()["ready"].get<bool>(),
+                  "Display-name match concealed a different canonical model");
+        }
+        lemon::RuntimeConfig::set_global(nullptr);
+    }
+    fs::remove_all(root);
+}
 int main() {
     const auto defaults = lemon::ConsumerConfig::defaults();
     check(defaults["critical_models"].size() == 3, "Wrong critical defaults");
@@ -135,7 +211,7 @@ int main() {
     ConsumerService::Manager manager;
     manager.metadata = [](const std::string &role) {
         return json{{"id", "user.target-" + role},
-                    {"runtime_name", "target-" + role},
+                    {"runtime_name", "user.target-" + role},
                     {"labels", {"tool_calling"}},
                     {"context_length", 8192}};
     };
@@ -256,6 +332,7 @@ int main() {
     check(!service.readiness()["ready"].get<bool>(), "Empty manager declared ready");
     for (const auto &role : defaults["critical_models"])
         health.push_back({{"model_name", "target-" + role.get<std::string>()},
+                          {"model_id", "user.target-" + role.get<std::string>()},
                           {"loaded", true},
                           {"backend_alive", true},
                           {"backend_health", "busy"},
@@ -360,6 +437,7 @@ int main() {
     network.stop();
     close(fd);
 #endif
+    model_identity_contract();
     std::cout << "Native consumer configuration, defaults, discovery, admission, "
                  "readiness, recovery and Wyoming passed\n";
 }

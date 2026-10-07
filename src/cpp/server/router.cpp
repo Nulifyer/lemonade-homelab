@@ -1316,6 +1316,7 @@ json Router::get_all_loaded_models() const {
 
         json model_info;
         model_info["model_name"] = model_manager_->get_public_model_name(server->get_model_name());
+        model_info["model_id"] = server->get_model_name();
         model_info["checkpoint"] = server->get_checkpoint();
         model_info["type"] = model_type_to_string(server->get_model_type());
         model_info["residency_class"] = residency_class_to_string(server->get_residency_class());

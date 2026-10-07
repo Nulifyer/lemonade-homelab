@@ -306,7 +306,7 @@ json ConsumerService::readiness() const {
             const auto name = metadata.value("runtime_name", metadata.at("id"));
             bool found = false;
             for (const auto &model : models)
-                if (model.value("model_name", json()) == name)
+                if (model.value("model_id", model.value("model_name", json())) == name)
                     found = healthy(model) && model.value("pinned", false);
             ready[role.get<std::string>()] = found;
         }
