@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
   packages: write
+concurrency:
+  group: homelab-image-publication
+  cancel-in-progress: false
 jobs:
   promote:
     if: github.repository == 'Nulifyer/lemonade-homelab'
