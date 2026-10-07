@@ -48,7 +48,9 @@ jobs:
   discover-release:
     name: Discover stable-diffusion.cpp releases
     # Label a PR `ci:upgrades` to opt it back in.
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:upgrades')
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:upgrades'))
     runs-on: ubuntu-latest
     outputs:
       base_release: ${{ steps.release.outputs.base_release }}
@@ -231,7 +233,9 @@ jobs:
     name: Build Lemonade with sd-cpp pins
     needs: discover-release
     # Label a PR `ci:upgrades` to opt it back in.
-    if: (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:upgrades')) && always() && !failure() && !cancelled()
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:upgrades')) && always() && !failure() && !cancelled())
     runs-on: windows-latest
     steps:
       - name: Prepare Windows runner for long paths and stale workspace caches
@@ -301,7 +305,9 @@ jobs:
   validate:
     name: Validate ${{ matrix.label }}
     needs: [discover-release, build]
-    if: always() && needs.build.result == 'success'
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (always() && needs.build.result == 'success')
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 420
     strategy:
@@ -464,7 +470,9 @@ jobs:
   verify-cuda-assets:
     name: Verify required CUDA assets
     needs: [discover-release, validate]
-    if: always() && needs.discover-release.result == 'success'
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (always() && needs.discover-release.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Verify CUDA release assets
@@ -514,9 +522,8 @@ jobs:
       contents: write
       pull-requests: write
     if: >-
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
-      needs.validate.result == 'success' &&
-      needs.verify-cuda-assets.result == 'success'
+      github.repository == 'lemonade-sdk/lemonade' &&
+      ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.validate.result == 'success' && needs.verify-cuda-assets.result == 'success')
     steps:
       - uses: actions/checkout@v5
 
@@ -717,7 +724,9 @@ jobs:
   validation-gate:
     name: stable-diffusion.cpp validation
     needs: [discover-release, build, validate, verify-cuda-assets]
-    if: always()
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (always())
     runs-on: ubuntu-latest
     steps:
       - name: Check gated jobs

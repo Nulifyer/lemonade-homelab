@@ -10,6 +10,7 @@ on:
 
 jobs:
     build-n-publish-website:
+      if: github.repository == 'lemonade-sdk/lemonade'
       name: Build and publish lemonade-server.ai website
       runs-on: ubuntu-latest
       steps:

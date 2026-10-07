@@ -68,7 +68,9 @@ jobs:
   label:
     runs-on: ubuntu-latest
     # Skip workflow-bot comments to avoid self-triggering loops.
-    if: github.event_name != 'issue_comment' || github.event.comment.user.type != 'Bot'
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (github.event_name != 'issue_comment' || github.event.comment.user.type != 'Bot')
     concurrency:
       group: auto-label-${{ github.event.issue.number || github.event.pull_request.number || inputs.target || github.event_name }}
       cancel-in-progress: false

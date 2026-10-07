@@ -54,6 +54,7 @@ jobs:
   # workflow_dispatch input.
   # =========================================================================
   setup:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: Build fork matrix
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -99,6 +100,7 @@ jobs:
   # shared box or the perf numbers are meaningless.
   # =========================================================================
   bench:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: Bench ${{ matrix.fork_id }}
     needs: [setup]
     runs-on: [self-hosted, stx-halo, Linux, X64, lemon-prod]
@@ -525,7 +527,9 @@ jobs:
   report:
     name: Aggregate and report
     needs: bench
-    if: always() && needs.bench.result != 'skipped'
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (always() && needs.bench.result != 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

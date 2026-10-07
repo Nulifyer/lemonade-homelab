@@ -39,7 +39,9 @@ env:
 jobs:
   source-tarball:
     name: Build Source Tarball
-    if: startsWith(github.ref, 'refs/heads/release-v') || startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (startsWith(github.ref, 'refs/heads/release-v') || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.get_version.outputs.version }}
@@ -76,6 +78,7 @@ jobs:
   # ========================================================================
 
   build-lemonade-server-installer:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: Build Lemonade Server Installer
     runs-on: windows-latest
     outputs:
@@ -183,8 +186,8 @@ jobs:
     # BUILD_FULL_INSTALLER above, spelled the same way so the two stay
     # provably complementary.
     if: >-
-      !(startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release-v') || inputs.enable_signing == true) &&
-      (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:distros'))
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (!(startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release-v') || inputs.enable_signing == true) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:distros')))
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -258,6 +261,7 @@ jobs:
           retention-days: 7
 
   tauri-compile-check:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: Compile-check the Tauri host (${{ matrix.os }})
     # The Tauri host is Rust, which `npm run typecheck` does not touch. Both
     # jobs that build it — the Windows desktop installer and the macOS .dmg —
@@ -306,7 +310,9 @@ jobs:
     runs-on: windows-latest
     needs: build-lemonade-server-installer
     # Sign on tag pushes (releases) or when manually enabled via workflow_dispatch
-    if: startsWith(github.ref, 'refs/tags/v') || inputs.enable_signing == true
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (startsWith(github.ref, 'refs/tags/v') || inputs.enable_signing == true)
     steps:
       - name: Sign MSI Installers with SignPath
         id: sign-msi
@@ -351,6 +357,7 @@ jobs:
           retention-days: 7
 
   build-lemonade-deb:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: Build Lemonade .deb Package
     runs-on: ubuntu-latest
     outputs:
@@ -440,6 +447,7 @@ jobs:
           fi
 
   cpp-unit-tests:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: C++ unit tests
     # Own job rather than a step of build-lemonade-deb: it shares nothing with
     # the packaging build (different configure, different flags), so as a step
@@ -483,7 +491,9 @@ jobs:
     # Packaging-only variant: the merge queue gates every merge, so PR pushes
     # skip it. Any Debian 13 build break still blocks at merge-queue time.
     # Label a PR `ci:distros` to opt it back in.
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:distros')
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:distros'))
     runs-on: ${{ matrix.runs-on }}
     outputs:
       version: ${{ steps.get_version.outputs.version }}
@@ -566,7 +576,9 @@ jobs:
 
   test-lemonade-debian13-smoke:
     name: Smoke test .deb (Debian 13)${{ matrix.job-suffix }}
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:distros')
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:distros'))
     runs-on: ${{ matrix.runs-on }}
     needs: build-lemonade-debian13
     container:
@@ -644,7 +656,9 @@ jobs:
     # Packaging-only variant: the merge queue gates every merge, so PR pushes
     # skip it. Any Fedora build break still blocks at merge-queue time.
     # Label a PR `ci:distros` to opt it back in.
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:distros')
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:distros'))
     runs-on: ${{ matrix.runs-on }}
     container:
       image: fedora:${{ matrix.fedora-version }}
@@ -738,7 +752,9 @@ jobs:
     # Lemonade (macOS) stays on PR pushes as the AppleClang compile canary; the
     # Tauri/dmg/pkg surface is packaging-only, so it gates at merge-queue time.
     # Label a PR `ci:macos` to opt it back in.
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:macos')
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:macos'))
     runs-on: macos-latest
     outputs:
       version: ${{ steps.get_version.outputs.version }}
@@ -814,6 +830,7 @@ jobs:
           fi
 
   build-lemonade-embeddable-linux:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: Build Embeddable Lemonade (Linux${{ matrix.job-suffix }})
     runs-on: ${{ matrix.runs-on }}
     outputs:
@@ -885,6 +902,7 @@ jobs:
           retention-days: 7
 
   build-lemonade-linux-arm64:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: Build Lemonade (Linux ARM64)
     runs-on: ubuntu-24.04-arm
     outputs:
@@ -934,6 +952,7 @@ jobs:
           retention-days: 7
 
   build-lemonade-embeddable-windows:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: Build Embeddable Lemonade (Windows)
     runs-on: windows-latest
     outputs:
@@ -984,6 +1003,7 @@ jobs:
           retention-days: 7
 
   build-lemonade-embeddable-macos:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: Build Embeddable Lemonade (macOS)
     runs-on: macos-latest
     outputs:
@@ -1043,11 +1063,8 @@ jobs:
     # Self-hosted rig capacity is the binding constraint, so the merge queue runs
     # these instead of PR pushes. Label a PR `ci:backends` to opt it back in.
     if: >-
-      !startsWith(github.ref, 'refs/tags/') &&
-      !startsWith(github.ref, 'refs/heads/release-v') &&
-      inputs.enable_signing != true &&
-      inputs.disable_macos_signing != true &&
-      (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:backends'))
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (!startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/heads/release-v') && inputs.enable_signing != true && inputs.disable_macos_signing != true && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:backends')))
     strategy:
       fail-fast: ${{ github.event_name == 'merge_group' }}
       matrix:
@@ -1322,11 +1339,8 @@ jobs:
     # Self-hosted rig capacity is the binding constraint, so the merge queue runs
     # these instead of PR pushes. Label a PR `ci:backends` to opt it back in.
     if: >-
-      !startsWith(github.ref, 'refs/tags/') &&
-      !startsWith(github.ref, 'refs/heads/release-v') &&
-      inputs.enable_signing != true &&
-      inputs.disable_macos_signing != true &&
-      (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:backends'))
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (!startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/heads/release-v') && inputs.enable_signing != true && inputs.disable_macos_signing != true && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:backends')))
     strategy:
       fail-fast: ${{ github.event_name == 'merge_group' }}
       matrix:
@@ -1474,11 +1488,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-lemonade-deb
     if: >-
-      !startsWith(github.ref, 'refs/tags/') &&
-      !startsWith(github.ref, 'refs/heads/release-v') &&
-      inputs.enable_signing != true &&
-      inputs.disable_macos_signing != true &&
-      (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:backends'))
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (!startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/heads/release-v') && inputs.enable_signing != true && inputs.disable_macos_signing != true && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:backends')))
     timeout-minutes: 15
     container:
       image: ghcr.io/lemonade-sdk/lemonade/build-environment:ubuntu24.04
@@ -1544,7 +1555,9 @@ jobs:
 
   test-rpm-package:
     name: Test .rpm - Fedora ${{ matrix.fedora-version }}${{ matrix.job-suffix }}
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:distros')
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:distros'))
     runs-on: ${{ matrix.runs-on }}
     needs: build-lemonade-rpm
     container:
@@ -1632,7 +1645,9 @@ jobs:
   packaging-gate:
     name: Packaging builds
     needs: [build-lemonade-debian13, test-lemonade-debian13-smoke, build-lemonade-rpm, test-rpm-package, build-lemonade-desktop-installer, tauri-compile-check]
-    if: always()
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (always())
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -1648,7 +1663,9 @@ jobs:
   backends-gate:
     name: Inference backend tests
     needs: [build-lemonade-server-installer, build-lemonade-deb, cpp-unit-tests, test-exe-inference, test-deb-inference, test-watchdog-lifecycle-linux]
-    if: always()
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (always())
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -1661,7 +1678,9 @@ jobs:
   macos-gate:
     name: macOS builds
     needs: [build-lemonade-macos-dmg, test-cli-endpoints-macos, test-embeddable-macos, test-dmg-inference]
-    if: always()
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (always())
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -1671,6 +1690,7 @@ jobs:
           event-name: ${{ github.event_name }}
 
   test-embeddable-posix:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: Test Embeddable (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     needs: build-lemonade-embeddable-linux
@@ -1711,7 +1731,9 @@ jobs:
     # PR as the AppleClang compile canary; this job re-tests the packaged archive
     # on a clean runner, which is merge-queue work.
     # Label a PR `ci:macos` to opt it back in.
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:macos')
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:macos'))
     runs-on: macos-latest
     needs: build-lemonade-embeddable-macos
     env:
@@ -1733,6 +1755,7 @@ jobs:
           label: macOS
 
   test-embeddable-windows:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: Test Embeddable (Windows)
     runs-on: windows-latest
     needs: build-lemonade-embeddable-windows
@@ -1845,7 +1868,9 @@ jobs:
     # Inference is the only macOS coverage no other job provides, so it has to
     # run where merges are gated.
     # Label a PR `ci:macos` to opt it back in.
-    if: ${{ !startsWith(github.ref, 'refs/tags/') && inputs.enable_signing != true && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:macos')) }}
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (!startsWith(github.ref, 'refs/tags/') && inputs.enable_signing != true && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:macos')))
     timeout-minutes: 45
     env:
       LEMONADE_CI_MODE: "True"
@@ -1951,6 +1976,7 @@ jobs:
   # ========================================================================
 
   test-cli-endpoints-linux:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: Test CLI/Endpoints (ubuntu-latest)
     runs-on: ubuntu-latest
     needs: build-lemonade-deb
@@ -2113,6 +2139,7 @@ jobs:
           artifact-name: server-logs-ubuntu-latest
 
   test-cli-endpoints-linux-arm64:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: Test ${{ matrix.test_type }} (ubuntu-24.04-arm)
     runs-on: ubuntu-24.04-arm
     needs: build-lemonade-linux-arm64
@@ -2208,6 +2235,7 @@ jobs:
           artifact-name: server-logs-arm64-${{ matrix.test_type }}
 
   test-cli-endpoints-windows:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: Test CLI/Endpoints (windows-latest)
     runs-on: windows-latest
     needs: build-lemonade-server-installer
@@ -2334,7 +2362,9 @@ jobs:
     # status check, and a required context that is never created leaves the PR
     # pending forever, whereas a job skipped by `if:` reports success.
     # Label a PR `ci:macos` to opt it back in.
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:macos')
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:macos'))
     runs-on: macos-latest
     needs: build-lemonade-macos-dmg
     timeout-minutes: 45
@@ -2520,6 +2550,7 @@ jobs:
   # ========================================================================
 
   test-cli-apikey-linux:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: Test API Key (ubuntu-latest)
     runs-on: ubuntu-latest
     needs: build-lemonade-deb
@@ -2617,6 +2648,7 @@ jobs:
           artifact-name: server-logs-apikey-ubuntu-latest
 
   test-cli-apikey:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: Test API Key (windows-latest)
     runs-on: windows-latest
     needs:
@@ -2741,7 +2773,9 @@ jobs:
     # A stable tag points at a commit that already had a candidate build, so its artifacts
     # exist and describe the same commit range; regenerating them would only reword what the
     # release admin already read. The release job tolerates this job being skipped.
-    if: startsWith(github.ref, 'refs/heads/release-v')
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (startsWith(github.ref, 'refs/heads/release-v'))
     runs-on: [self-hosted, stx-halo, Linux, X64, lemon-prod]
     timeout-minutes: 180
     # The workflow-level grant is `contents: write` and nothing else. repo-manager reads this
@@ -2795,10 +2829,8 @@ jobs:
     # Candidates skip sign-msi-installers, so a plain `needs` would skip this
     # job too; check the results explicitly instead.
     if: >-
-      !cancelled() &&
-      (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release-v')) &&
-      !contains(needs.*.result, 'failure') &&
-      !contains(needs.*.result, 'cancelled')
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (!cancelled() && (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release-v')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled'))
     env:
       LEMONADE_VERSION: ${{ needs.build-lemonade-rpm.outputs.version }}
       # A release branch build is a candidate: published unsigned as a prerelease

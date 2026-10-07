@@ -56,6 +56,16 @@ Verify the interface with `go test -race -timeout 60s ./...` and `go vet ./...` 
 The release image builds and tests the manager, pinned Parakeet source and Go interface before publishing.
 The Homelab repository owns Portainer settings, consumer migration and hardware acceptance evidence.
 
+## Fork automation
+
+`homelab-checks.yml` runs the compiled interface's race tests and vet on branch
+changes. `homelab-release.yml` builds/tests and publishes tagged images;
+`homelab-promote.yml` promotes an already tested release without rebuilding.
+Inherited upstream publishing, triage, packaging and hardware-runner jobs are
+restricted to `lemonade-sdk/lemonade` and disabled in this fork. They require
+upstream credentials or infrastructure. Hosted documentation, routing and
+registry tests remain available. No account notification settings are changed.
+
 ## Service discovery and logs
 
 The native hybrid catalog advertises the accepted text and tool-calling features.

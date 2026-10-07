@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   setup:
+    if: github.repository == 'lemonade-sdk/lemonade'
     runs-on: ubuntu-latest
     outputs:
       runners: ${{ steps.load.outputs.runners }}
@@ -31,6 +32,7 @@ jobs:
           echo "Loaded runners: $runners"
 
   heartbeat:
+    if: github.repository == 'lemonade-sdk/lemonade'
     needs: setup
     strategy:
       matrix:

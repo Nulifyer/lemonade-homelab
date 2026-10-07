@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   trigger-snap-rc:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: Trigger snap RC builds
     runs-on: ubuntu-latest
     steps:

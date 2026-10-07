@@ -37,7 +37,9 @@ jobs:
     # Only the auto-update runs resolve upstream releases. Everywhere else the
     # build validates the pins committed in backend_versions.json, so a bad
     # upstream release can't fail a merge or hide a broken pin.
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     outputs:
       llamacpp_release: ${{ steps.llamacpp.outputs.release }}
@@ -87,7 +89,9 @@ jobs:
   verify-release-assets:
     name: Verify release assets
     needs: get-latest-releases
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     outputs:
       ggml_update_backends: ${{ steps.assets.outputs.ggml_update_backends }}
@@ -302,7 +306,9 @@ jobs:
     name: Build
     needs: [get-latest-releases, verify-release-assets]
     # Label a PR `ci:upgrades` to opt it back in.
-    if: (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:upgrades')) && always() && !failure() && !cancelled()
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:upgrades')) && always() && !failure() && !cancelled())
     runs-on: windows-latest
     outputs:
       lite: ${{ steps.lite.outputs.lite }}
@@ -434,7 +440,9 @@ jobs:
   validate:
     name: Validate ${{ matrix.backend }}${{ matrix.channel && format(' ({0})', matrix.channel) || '' }}
     needs: [get-latest-releases, build]
-    if: always() && needs.build.result == 'success'
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (always() && needs.build.result == 'success')
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: ${{ github.event_name == 'merge_group' }}
@@ -903,9 +911,8 @@ jobs:
       contents: write
       pull-requests: write
     if: >-
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
-      needs.validate.result == 'success' &&
-      needs.verify-release-assets.result == 'success'
+      github.repository == 'lemonade-sdk/lemonade' &&
+      ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.validate.result == 'success' && needs.verify-release-assets.result == 'success')
     steps:
       - uses: actions/checkout@v5
 
@@ -1135,7 +1142,9 @@ jobs:
   validation-gate:
     name: llama.cpp validation
     needs: [build, validate]
-    if: always()
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (always())
     runs-on: ubuntu-latest
     steps:
       - name: Check gated jobs

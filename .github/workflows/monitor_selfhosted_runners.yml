@@ -26,6 +26,7 @@ env:
 
 jobs:
   check:
+    if: github.repository == 'lemonade-sdk/lemonade'
     runs-on: ubuntu-latest
     env:
       # Defined at job scope so the step-level `if:` below can read it via

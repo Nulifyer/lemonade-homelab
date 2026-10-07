@@ -15,6 +15,7 @@ on:
 
 jobs:
   test-runner:
+    if: github.repository == 'lemonade-sdk/lemonade'
     runs-on: ${{ inputs.runner }}
     steps:
       - name: Checkout code

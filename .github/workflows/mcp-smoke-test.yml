@@ -40,6 +40,7 @@ jobs:
   # CMake path: build lemond natively, start it, hit /mcp
   # ========================================================================
   cmake-smoke-test:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: CMake build + MCP smoke test
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -128,6 +129,7 @@ jobs:
   # Docker path: build the image, run the container, hit /mcp
   # ========================================================================
   docker-smoke-test:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: Docker build + MCP smoke test
     runs-on: ubuntu-latest
     timeout-minutes: 45

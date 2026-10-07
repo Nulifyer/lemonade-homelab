@@ -18,6 +18,7 @@ permissions:
 
 jobs:
   list-commits:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: List the commits this push added
     runs-on: ubuntu-latest
     outputs:
@@ -49,7 +50,9 @@ jobs:
   review:
     name: Review ${{ matrix.sha }}
     needs: list-commits
-    if: needs.list-commits.outputs.shas != '[]'
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (needs.list-commits.outputs.shas != '[]')
     runs-on: [self-hosted, stx-halo, Linux, X64, lemon-prod]
     timeout-minutes: 120
     strategy:

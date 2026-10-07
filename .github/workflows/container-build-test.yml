@@ -32,6 +32,7 @@ concurrency:
 
 jobs:
   build-and-smoke-test:
+    if: github.repository == 'lemonade-sdk/lemonade'
     name: Build and smoke test (${{ matrix.arch }})
 
     strategy:

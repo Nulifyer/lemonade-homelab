@@ -37,7 +37,9 @@ jobs:
     # Only the auto-update runs resolve upstream releases. Everywhere else the
     # build validates the pins committed in backend_versions.json, so a bad
     # upstream release can't fail a merge or hide a broken pin.
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     outputs:
       vllm_rocm_release: ${{ steps.vllm_rocm.outputs.release }}
@@ -58,7 +60,9 @@ jobs:
     name: Build (Linux)
     needs: get-latest-releases
     # Label a PR `ci:upgrades` to opt it back in.
-    if: (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:upgrades')) && always() && !failure() && !cancelled()
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:upgrades')) && always() && !failure() && !cancelled())
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
@@ -113,7 +117,9 @@ jobs:
   validate:
     name: Validate vllm (rocm)
     needs: [get-latest-releases, build]
-    if: always() && needs.build.result == 'success'
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (always() && needs.build.result == 'success')
     runs-on: [self-hosted, stx-halo, Linux, X64, lemon-prod]
     steps:
       - uses: actions/checkout@v5
@@ -265,8 +271,8 @@ jobs:
     needs: [get-latest-releases, validate]
     runs-on: ubuntu-latest
     if: >-
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
-      needs.validate.result == 'success'
+      github.repository == 'lemonade-sdk/lemonade' &&
+      ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.validate.result == 'success')
     steps:
       - uses: actions/checkout@v5
 
@@ -379,7 +385,9 @@ jobs:
   validation-gate:
     name: vLLM validation
     needs: [build, validate]
-    if: always()
+    if: >-
+      github.repository == 'lemonade-sdk/lemonade' &&
+      (always())
     runs-on: ubuntu-latest
     steps:
       - name: Check gated jobs

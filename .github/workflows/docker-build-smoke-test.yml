@@ -23,6 +23,7 @@ concurrency:
 
 jobs:
   docker-smoke-test:
+    if: github.repository == 'lemonade-sdk/lemonade'
     runs-on: ubuntu-latest
 
     steps:

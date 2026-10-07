@@ -1,0 +1,33 @@
+name: Homelab interface checks
+on:
+  push:
+    branches: [homelab-runtime]
+    paths:
+      - contrib/homelab/**
+      - .github/workflows/homelab-checks.yml
+  pull_request:
+    paths:
+      - contrib/homelab/**
+      - .github/workflows/homelab-checks.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: homelab-checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  interface:
+    if: github.repository == 'Nulifyer/lemonade-homelab'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: contrib/homelab/interface
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+          cache: false
+      - run: go test -race -timeout 60s ./...
+      - run: go vet ./...
