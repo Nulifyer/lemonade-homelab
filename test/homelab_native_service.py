@@ -75,6 +75,11 @@ def main():
                     raise RuntimeError("Native consumer never became ready")
                 for prefix in ("/api/v0/", "/api/v1/", "/v0/", "/v1/"):
                     assert request(manager_port, prefix + "ready")["ready"]
+                    budget = request(manager_port, prefix + "system-stats")["resource_budget"]
+                    if sys.platform == "linux":
+                        assert budget["available"] and budget["host_total_gib"] > 0
+                        assert budget["models"] == []
+                        assert "total_allocated_gib" not in budget
                     assert request(manager_port, prefix + "service")["configuration"][
                         "enabled"
                     ]

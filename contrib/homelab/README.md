@@ -128,3 +128,17 @@ Inherited upstream triage, publishing and hardware-runner jobs are gated to
 `lemonade-sdk/lemonade` and disabled in this fork. Fork workflows own hosted
 native checks, release builds and promotion. No account notification settings
 are changed.
+
+## Resource budgets and revisions
+
+The dashboard RAM meter opens resource budgets and model revision status.
+`GET /api/v1/system-stats` includes Linux `resource_budget`: host available RAM,
+cgroup current/peak/limits, and per-runtime CPU seconds, process PSS and DRM
+resident GPU/GTT memory. Duplicate descriptors count once. Missing counters
+remain null; NPU utilization is device-wide. These overlapping memory views
+must not be added. Driver memory can be outside the cgroup charge.
+
+Model revisions are checked at startup when `auto_check_model_updates` is true.
+The dialog can run `POST /api/v1/models/check-updates` and list downloaded
+models with newer revisions. Checks never download weights; automatic model
+updates remain disabled. Existing download controls apply an update explicitly.

@@ -7108,6 +7108,8 @@ void Server::handle_system_stats(const httplib::Request& req, httplib::Response&
     double npu_percent = get_npu_utilization();
     stats["npu_percent"] = (npu_percent >= 0) ? nlohmann::json(npu_percent) : nlohmann::json();
 
+    stats["resource_budget"] = metrics_platform_->get_resource_budget(
+        router_->get_metrics_snapshot().at("loaded_models"));
     res.set_content(stats.dump(), "application/json");
 }
 

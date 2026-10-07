@@ -4,6 +4,8 @@ on:
     branches: [homelab-runtime]
     paths:
       - src/cpp/**
+      - src/app/**
+      - src/web-app/**
       - test/**
       - contrib/homelab/**
       - CMakeLists.txt
@@ -11,6 +13,8 @@ on:
   pull_request:
     paths:
       - src/cpp/**
+      - src/app/**
+      - src/web-app/**
       - test/**
       - contrib/homelab/**
       - CMakeLists.txt

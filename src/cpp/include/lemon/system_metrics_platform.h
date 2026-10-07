@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <nlohmann/json.hpp>
 
 namespace lemon {
 
@@ -28,6 +29,10 @@ public:
 
     // VRAM usage in GB, -1 if not available or unsupported
     virtual double get_vram_usage_gb() = 0;
+
+    virtual nlohmann::json get_resource_budget(const nlohmann::json&) {
+        return {{"available", false}};
+    }
 
     // NPU utilization percentage (0-100), -1 if not available or unsupported
     virtual double get_npu_utilization() = 0;

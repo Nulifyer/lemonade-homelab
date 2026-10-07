@@ -7952,3 +7952,17 @@ input::-webkit-calendar-picker-indicator {
     color: var(--text-primary);
     margin: 0;
 }
+
+.resource-budget-trigger { background: none; border: 0; font: inherit; color: inherit; padding: 0; cursor: pointer; }
+.resource-budget-trigger:hover .status-bar-value { text-decoration: underline; }
+.resource-budget-trigger:focus-visible { outline: 2px solid var(--info-color); outline-offset: 3px; }
+.resource-budget-modal { width: min(900px, 94vw); max-width: 900px; }
+.resource-budget-content { padding: 16px 24px; overflow-y: auto; }
+.resource-budget-content p { font-size: 13px; line-height: 1.6; }
+.resource-budget-summary { display: grid; grid-template-columns: minmax(120px, 1fr) 2fr; gap: 8px 16px; }
+.resource-budget-summary dd { margin: 0; }
+.resource-budget-table-wrap { overflow-x: auto; }
+.resource-budget-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.resource-budget-table th, .resource-budget-table td { padding: 10px 8px; text-align: left; border-bottom: 1px solid var(--border-primary); white-space: nowrap; }
+.resource-budget-table small { display: block; font-weight: normal; opacity: 0.75; margin-top: 4px; }
+@media (max-width: 600px) { .resource-budget-content { padding: 12px; } .resource-budget-summary { grid-template-columns: 1fr; gap: 4px; } .resource-budget-summary dd { margin-bottom: 10px; } }

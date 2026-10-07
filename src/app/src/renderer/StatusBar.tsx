@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import ResourceBudgetModal, { ResourceBudget } from './ResourceBudgetModal';
 import { serverConfig, onServerUrlChange } from './utils/serverConfig';
 
 interface ServerStats {
@@ -14,6 +15,7 @@ interface SystemStats {
   gpu_percent: number | null;
   vram_gb: number | null;
   npu_percent: number | null;
+  resource_budget?: ResourceBudget;
 }
 
 const StatusBar: React.FC = () => {
@@ -30,6 +32,8 @@ const StatusBar: React.FC = () => {
     vram_gb: null,
     npu_percent: null,
   });
+  const [showResources, setShowResources] = useState(false);
+  const closeResources = useCallback(() => setShowResources(false), []);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connecting');
   const [serverUrl, setServerUrl] = useState<string>('');
   const [lastSuccessfulConnection, setLastSuccessfulConnection] = useState<number | null>(null);
@@ -72,6 +76,7 @@ const StatusBar: React.FC = () => {
           gpu_percent: stats.gpu_percent ?? null,
           vram_gb: stats.vram_gb ?? null,
           npu_percent: stats.npu_percent ?? null,
+          resource_budget: stats.resource_budget,
         });
       }
     } catch {
@@ -159,6 +164,7 @@ const StatusBar: React.FC = () => {
   };
 
   return (
+    <>
     <div className="status-bar">
       <div className="status-bar-item status-bar-connection" title={serverUrl}>
         <span className={`connection-indicator connection-${connectionStatus}`}>●</span>
@@ -187,11 +193,11 @@ const StatusBar: React.FC = () => {
         <span className="status-bar-label status-bar-label-short">TTFT:</span>
         <span className="status-bar-value">{formatTtft(serverStats.time_to_first_token)}</span>
       </div>
-      <div className="status-bar-item">
+      <button className="status-bar-item resource-budget-trigger" title="View resource budgets and model updates" aria-label="View resource budgets and model updates" onClick={() => setShowResources(true)}>
         <span className="status-bar-label status-bar-label-long">RAM:</span>
         <span className="status-bar-label status-bar-label-short">RAM:</span>
         <span className="status-bar-value">{formatMemory(systemStats.memory_gb)}</span>
-      </div>
+      </button>
       {systemStats.cpu_percent !== null && systemStats.cpu_percent !== undefined && (
         <div className="status-bar-item">
           <span className="status-bar-label status-bar-label-long">CPU:</span>
@@ -221,6 +227,8 @@ const StatusBar: React.FC = () => {
         </div>
       )}
     </div>
+    {showResources && <ResourceBudgetModal budget={systemStats.resource_budget} onClose={closeResources} />}
+    </>
   );
 };
 

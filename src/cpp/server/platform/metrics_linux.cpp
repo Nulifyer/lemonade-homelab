@@ -1,4 +1,5 @@
 #include <lemon/system_metrics_platform.h>
+#include <lemon/resource_budget.h>
 #include <fstream>
 #include <sstream>
 #include <filesystem>
@@ -17,6 +18,10 @@ namespace lemon {
 
 class LinuxMetricsPlatform : public SystemMetricsPlatform {
 public:
+    nlohmann::json get_resource_budget(const nlohmann::json& models) override {
+        return collect_linux_resource_budget(models, "/proc", "/sys/fs/cgroup", sysconf(_SC_CLK_TCK));
+    }
+
     const char* get_platform_name() const override {
         return "Linux";
     }

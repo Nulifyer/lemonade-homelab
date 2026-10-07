@@ -1030,6 +1030,7 @@ set(SOURCES_CORE
     src/cpp/server/logging_config.cpp
     src/cpp/server/log_stream.cpp
     src/cpp/server/api_docs.cpp
+    src/cpp/server/resource_budget.cpp
     src/cpp/server/prometheus_metrics.cpp
     src/cpp/server/utils/http_client.cpp
     src/cpp/server/utils/json_utils.cpp
@@ -2463,6 +2464,9 @@ endif()
 
 # Ollama aliases and request sampling conversion.
 if(BUILD_TESTING)
+    add_executable(test_resource_budget test/cpp/test_resource_budget.cpp)
+    target_link_libraries(test_resource_budget PRIVATE lemonade-server-core)
+    add_cpp_ci_test(ResourceBudgetTest CI ON COMMAND test_resource_budget)
     add_executable(test_consumer_service test/cpp/test_consumer_service.cpp)
     target_link_libraries(test_consumer_service PRIVATE lemonade-server-core)
     add_cpp_ci_test(ConsumerServiceTest CI ON COMMAND test_consumer_service)
