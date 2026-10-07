@@ -43,6 +43,20 @@ Verify the interface with `go test -race -timeout 60s ./...` and `go vet ./...` 
 The release image builds and tests the manager, pinned Parakeet source and Go interface before publishing.
 The Homelab repository owns Portainer settings, consumer migration and hardware acceptance evidence.
 
+## Service discovery and logs
+
+`GET /` lists the approved model roles and their APIs. `GET /openapi.json` returns
+the inference contract, filtered to the consumer scope in key mode. Set
+`AI_PUBLIC_URL`, `CHAT_URL`, `MANAGER_URL` and `CONSOLE_URL` to publish service links.
+The catalog does not expose model administration.
+
+The interface writes JSON events to stderr for Docker and Portainer logs. HTTP
+events include a generated `X-Request-ID`, approved model, status, duration and
+response bytes. Wyoming events include speech model, backend status and failure
+category. Successful health probes are quiet. Prompts, transcripts, audio,
+credentials, query strings and unknown URL paths are excluded. These metadata
+events establish request progress and failure boundaries, not model quality.
+
 ## Limits
 
 Hybrid execution accelerates eligible prefill matrix operations. Attention, recurrence and decoding remain on GPU.

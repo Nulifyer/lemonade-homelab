@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"log/slog"
 	"mime"
 	"mime/multipart"
 	"net"
@@ -22,13 +23,15 @@ import (
 )
 
 type config struct {
-	upstream            *url.URL
-	backendKey          string
-	noAuth              bool
-	clients             map[string]map[string]bool
-	voice               string
-	httpAddr, voiceAddr string
-	inferenceTimeout    time.Duration
+	upstream                                   *url.URL
+	backendKey                                 string
+	noAuth                                     bool
+	logger                                     *slog.Logger
+	publicURL, chatURL, managerURL, consoleURL string
+	clients                                    map[string]map[string]bool
+	voice                                      string
+	httpAddr, voiceAddr                        string
+	inferenceTimeout                           time.Duration
 }
 
 type service struct {
@@ -39,6 +42,7 @@ type service struct {
 	admitted           chan struct{}
 	voiceClients       chan struct{}
 	requests, failures atomic.Uint64
+	sequence           atomic.Uint64
 }
 
 func readConfig() (config, error) {
@@ -91,6 +95,19 @@ func readConfig() (config, error) {
 	if v := os.Getenv("WYOMING_ADDR"); v != "" {
 		c.voiceAddr = v
 	}
+	c.publicURL = "http://localhost:8080"
+	for _, item := range []struct {
+		name string
+		dest *string
+	}{{"AI_PUBLIC_URL", &c.publicURL}, {"CHAT_URL", &c.chatURL}, {"MANAGER_URL", &c.managerURL}, {"CONSOLE_URL", &c.consoleURL}} {
+		if value := os.Getenv(item.name); value != "" {
+			u, err := url.Parse(value)
+			if err != nil || u.Host == "" || u.User != nil || (u.Scheme != "http" && u.Scheme != "https") || u.RawQuery != "" || u.Fragment != "" {
+				return c, errors.New(item.name + " must be an HTTP service URL without credentials, query or fragment")
+			}
+			*item.dest = strings.TrimRight(value, "/")
+		}
+	}
 	return c, nil
 }
 
@@ -111,6 +128,9 @@ func newService(c config) *service {
 		pr.Out.Header.Del("X-Api-Key")
 	}, ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 		s.failures.Add(1)
+		if state := audit(r); state != nil {
+			s.logEvent(slog.LevelWarn, "backend_failure", "request_id", state.id, "model", state.model, "reason", errorKind(err))
+		}
 		http.Error(w, "model backend unavailable; reconnect with a fresh request", http.StatusBadGateway)
 	}, ErrorLog: log.New(io.Discard, "", 0)}
 	return s
@@ -118,7 +138,11 @@ func newService(c config) *service {
 
 func (s *service) authorized(r *http.Request) map[string]bool {
 	if s.cfg.noAuth {
-		return map[string]bool{"small-task": true, "chat-roleplay": true, "agent-work": true, "speech-stt": true, "speech-tts": true}
+		models := map[string]bool{}
+		for _, role := range modelRoles {
+			models[role.ID] = true
+		}
+		return models
 	}
 	value := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	for key, models := range s.cfg.clients {
@@ -135,7 +159,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func (s *service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (s *service) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" && r.URL.Path == "/health" {
 		writeJSON(w, 200, map[string]bool{"alive": true})
 		return
@@ -143,6 +167,9 @@ func (s *service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	models := s.authorized(r)
 	if models == nil {
 		http.Error(w, "unauthorized", 401)
+		return
+	}
+	if s.serveCatalog(w, r, models) {
 		return
 	}
 	if r.Method == "GET" && r.URL.Path == "/ready" {
@@ -164,7 +191,8 @@ func (s *service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == "GET" && (r.URL.Path == "/v1/models" || r.URL.Path == "/api/tags") {
 		list := []map[string]any{}
-		for _, name := range []string{"small-task", "chat-roleplay", "agent-work", "speech-stt", "speech-tts"} {
+		for _, role := range modelRoles {
+			name := role.ID
 			if !models[name] {
 				continue
 			}
@@ -240,6 +268,9 @@ func (s *service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "speech-stt WAV required", 400)
 			return
 		}
+		if state := audit(r); state != nil {
+			state.model = "speech-stt"
+		}
 		s.forward(w, r, body)
 		return
 	}
@@ -283,6 +314,9 @@ func (s *service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "LLM model required", 400)
 		return
 	}
+	if state := audit(r); state != nil {
+		state.model = model
+	}
 	if err := applyPreset(obj, model, r.URL.Path); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
@@ -303,6 +337,9 @@ func (s *service) forward(w http.ResponseWriter, r *http.Request, body []byte) {
 		http.Error(w, "inference queue full", 429)
 		return
 	}
+	if state := audit(r); state != nil {
+		s.logEvent(slog.LevelInfo, "inference_started", "request_id", state.id, "model", state.model, "path", logPath(r.URL.Path))
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), s.cfg.inferenceTimeout)
 	defer cancel()
 	r = r.WithContext(ctx)
@@ -321,6 +358,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	c.logger = slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	s := newService(c)
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -337,7 +375,7 @@ func main() {
 		defer done()
 		_ = server.Shutdown(shutdown)
 	}()
-	log.Print("compiled AI inference and Wyoming interfaces started")
+	s.logEvent(slog.LevelInfo, "service_started", "http_address", c.httpAddr, "wyoming_address", c.voiceAddr, "key_free", c.noAuth)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}

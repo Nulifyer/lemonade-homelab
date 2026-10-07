@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net"
 	"net/http"
@@ -132,6 +133,7 @@ func (s *service) voiceSession(parent context.Context, c net.Conn) {
 	send := func(e event) error { _ = c.SetWriteDeadline(time.Now().Add(10 * time.Second)); return writeEvent(c, e) }
 	fail := func(code string) {
 		s.failures.Add(1)
+		s.logEvent(slog.LevelWarn, "wyoming_failure", "reason", code)
 		_ = send(event{Type: "error", Data: map[string]any{"code": code, "text": "Speech request failed. Start a fresh request."}})
 	}
 	for {
@@ -234,7 +236,24 @@ func parseFormat(m map[string]any) audioFormat {
 	n := func(k string) int { v, _ := m[k].(float64); return int(v) }
 	return audioFormat{n("rate"), n("width"), n("channels")}
 }
-func (s *service) speechRequest(ctx context.Context, path, contentType string, b []byte, slot chan struct{}) ([]byte, error) {
+func (s *service) speechRequest(ctx context.Context, path, contentType string, b []byte, slot chan struct{}) (data []byte, requestErr error) {
+	started := time.Now()
+	state := s.newAudit()
+	model := "speech-tts"
+	if path == "/api/v1/audio/transcriptions" {
+		model = "speech-stt"
+	}
+	status := 0
+	s.logEvent(slog.LevelInfo, "speech_started", "request_id", state.id, "model", model)
+	defer func() {
+		level := slog.LevelInfo
+		reason := ""
+		if requestErr != nil {
+			level = slog.LevelWarn
+			reason = errorKind(requestErr)
+		}
+		s.logEvent(level, "speech_request", "request_id", state.id, "model", model, "status", status, "duration_ms", time.Since(started).Milliseconds(), "response_bytes", len(data), "reason", reason)
+	}()
 	select {
 	case slot <- struct{}{}:
 		defer func() { <-slot }()
@@ -256,10 +275,11 @@ func (s *service) speechRequest(ctx context.Context, path, contentType string, b
 		return nil, err
 	}
 	defer resp.Body.Close()
+	status = resp.StatusCode
 	if resp.StatusCode != 200 {
 		return nil, errors.New("speech backend failed")
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 16*1024*1024+1))
+	data, err = io.ReadAll(io.LimitReader(resp.Body, 16*1024*1024+1))
 	if len(data) > 16*1024*1024 {
 		return nil, errors.New("speech response too large")
 	}

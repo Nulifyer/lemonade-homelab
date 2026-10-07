@@ -1,0 +1,544 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Homelab model services",
+    "version": "0.1.7",
+    "description": "One inference interface with stable model roles. Explicit client sampling values override presets. Model administration belongs to Lemonade. Wyoming speech uses the private ai-voice:10300 endpoint."
+  },
+  "servers": [],
+  "security": [],
+  "paths": {
+    "/v1/models": {
+      "get": {
+        "summary": "List approved model aliases. Discovery does not establish model readiness.",
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/api/tags": {
+      "get": {
+        "summary": "Ollama model discovery.",
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/api/version": {
+      "get": {
+        "summary": "Ollama compatibility version.",
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Interface liveness.",
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "summary": "Manager connectivity.",
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "summary": "Prometheus request and failure counters.",
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/v1/chat/completions": {
+      "post": {
+        "summary": "Chat and tool calling.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "model",
+                  "messages"
+                ],
+                "properties": {
+                  "model": {
+                    "type": "string"
+                  },
+                  "messages": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  },
+                  "stream": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "temperature": {
+                    "type": "number"
+                  },
+                  "top_p": {
+                    "type": "number"
+                  },
+                  "min_p": {
+                    "type": "number"
+                  },
+                  "repeat_penalty": {
+                    "type": "number"
+                  },
+                  "presence_penalty": {
+                    "type": "number"
+                  },
+                  "frequency_penalty": {
+                    "type": "number"
+                  },
+                  "top_k": {
+                    "type": "integer"
+                  },
+                  "max_tokens": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Model response or streamed response."
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "description": "API key required in key mode."
+          },
+          "403": {
+            "description": "Model or operation denied."
+          },
+          "413": {
+            "description": "Request too large."
+          },
+          "429": {
+            "description": "Admission queue full."
+          },
+          "502": {
+            "description": "Backend unavailable. Start a fresh request."
+          }
+        }
+      }
+    },
+    "/v1/completions": {
+      "post": {
+        "summary": "Text completions.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "model",
+                  "prompt"
+                ],
+                "properties": {
+                  "model": {
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "type": "string"
+                  },
+                  "stream": {
+                    "type": "boolean"
+                  },
+                  "temperature": {
+                    "type": "number"
+                  },
+                  "top_p": {
+                    "type": "number"
+                  },
+                  "min_p": {
+                    "type": "number"
+                  },
+                  "repeat_penalty": {
+                    "type": "number"
+                  },
+                  "presence_penalty": {
+                    "type": "number"
+                  },
+                  "frequency_penalty": {
+                    "type": "number"
+                  },
+                  "top_k": {
+                    "type": "integer"
+                  },
+                  "max_tokens": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Model response or streamed response."
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "description": "API key required in key mode."
+          },
+          "403": {
+            "description": "Model or operation denied."
+          },
+          "413": {
+            "description": "Request too large."
+          },
+          "429": {
+            "description": "Admission queue full."
+          },
+          "502": {
+            "description": "Backend unavailable. Start a fresh request."
+          }
+        }
+      }
+    },
+    "/v1/responses": {
+      "post": {
+        "summary": "Responses-compatible inference.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "model",
+                  "input"
+                ],
+                "properties": {
+                  "model": {
+                    "type": "string"
+                  },
+                  "input": {},
+                  "stream": {
+                    "type": "boolean"
+                  },
+                  "temperature": {
+                    "type": "number"
+                  },
+                  "top_p": {
+                    "type": "number"
+                  },
+                  "min_p": {
+                    "type": "number"
+                  },
+                  "repeat_penalty": {
+                    "type": "number"
+                  },
+                  "presence_penalty": {
+                    "type": "number"
+                  },
+                  "frequency_penalty": {
+                    "type": "number"
+                  },
+                  "top_k": {
+                    "type": "integer"
+                  },
+                  "max_tokens": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Model response or streamed response."
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "description": "API key required in key mode."
+          },
+          "403": {
+            "description": "Model or operation denied."
+          },
+          "413": {
+            "description": "Request too large."
+          },
+          "429": {
+            "description": "Admission queue full."
+          },
+          "502": {
+            "description": "Backend unavailable. Start a fresh request."
+          }
+        }
+      }
+    },
+    "/api/chat": {
+      "post": {
+        "summary": "Ollama chat for Home Assistant and other clients.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "model",
+                  "messages"
+                ],
+                "properties": {
+                  "model": {
+                    "type": "string"
+                  },
+                  "messages": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "options": {
+                    "type": "object",
+                    "description": "Sampling options and num_ctx/num_predict."
+                  },
+                  "stream": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Model response or streamed response."
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "description": "API key required in key mode."
+          },
+          "403": {
+            "description": "Model or operation denied."
+          },
+          "413": {
+            "description": "Request too large."
+          },
+          "429": {
+            "description": "Admission queue full."
+          },
+          "502": {
+            "description": "Backend unavailable. Start a fresh request."
+          }
+        }
+      }
+    },
+    "/api/show": {
+      "post": {
+        "summary": "Ollama model metadata.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "model"
+                ],
+                "properties": {
+                  "model": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Model response or streamed response."
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "description": "API key required in key mode."
+          },
+          "403": {
+            "description": "Model or operation denied."
+          },
+          "413": {
+            "description": "Request too large."
+          },
+          "429": {
+            "description": "Admission queue full."
+          },
+          "502": {
+            "description": "Backend unavailable. Start a fresh request."
+          }
+        }
+      }
+    },
+    "/v1/audio/transcriptions": {
+      "post": {
+        "summary": "Transcribe a completed English WAV utterance.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "model",
+                  "file"
+                ],
+                "properties": {
+                  "model": {
+                    "type": "string"
+                  },
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "RIFF WAV upload, at most 16 MiB."
+                  },
+                  "language": {
+                    "type": "string",
+                    "default": "en"
+                  },
+                  "response_format": {
+                    "type": "string",
+                    "default": "json"
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Model response or streamed response."
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "description": "API key required in key mode."
+          },
+          "403": {
+            "description": "Model or operation denied."
+          },
+          "413": {
+            "description": "Request too large."
+          },
+          "429": {
+            "description": "Admission queue full."
+          },
+          "502": {
+            "description": "Backend unavailable. Start a fresh request."
+          }
+        }
+      }
+    },
+    "/v1/audio/speech": {
+      "post": {
+        "summary": "Generate English utility speech.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "model",
+                  "input"
+                ],
+                "properties": {
+                  "model": {
+                    "type": "string"
+                  },
+                  "input": {
+                    "type": "string"
+                  },
+                  "voice": {
+                    "type": "string",
+                    "default": "af_heart"
+                  },
+                  "response_format": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Model response or streamed response."
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "description": "API key required in key mode."
+          },
+          "403": {
+            "description": "Model or operation denied."
+          },
+          "413": {
+            "description": "Request too large."
+          },
+          "429": {
+            "description": "Admission queue full."
+          },
+          "502": {
+            "description": "Backend unavailable. Start a fresh request."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}
