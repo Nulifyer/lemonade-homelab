@@ -8,13 +8,26 @@ The llama.cpp runtime launch hook reuses its existing request, streaming, cancel
 The image bundles both engines and a Go inference/Wyoming interface. It contains no new Python serving process.
 Lemonade remains the owner of Hugging Face downloads, model revisions, aliases and backend subprocesses.
 The Go interface restricts consumer keys to approved aliases and inference routes.
-It rejects duplicate JSON keys and ambiguous model fields. It does not execute tools or manage models.
+It rejects duplicate JSON keys and ambiguous model fields. It does not execute tools or expose model administration.
 Home Assistant uses Lemonade's existing Ollama compatibility through this interface.
 
 The voice interface bounds connections, utterance buffers, STT and TTS admission, HTTP requests and output buffers.
 It reads WAV sample rates, accepts Kokoro's bounded streaming WAV header and converts float32 samples when required.
 Disconnecting a Wyoming client cancels its HTTP request. Failed POST requests are not replayed.
 Clients open a fresh session after disconnects. Model restart and host recovery require deployment tests.
+
+Run the same Go executable with `--warmup` as the `model-startup` service in the
+manager stack. It loads and pins only `HA-Qwen35-2B`, `Redux-English` and `kokoro-v1`.
+It checks every 15 seconds and restores missing models after a manager restart.
+Loads use existing saved options. Missing downloads are reported instead of fetched.
+One failed model does not prevent the other critical models from loading.
+Skyfall and the 27B Qwen remain on demand.
+
+The startup worker exposes only `/health` and `/ready`, without a public router
+or Wyoming listener. Both worker and consumer `/ready` query live manager health
+and return 503 unless every critical backend is loaded, healthy and pinned.
+`/health` is process liveness. Readiness does not establish inference quality.
+Keep model management in Lemonade and keep the worker running alongside it.
 
 Configure `hybrid.npu_bin` as `/opt/llama/hybrid-server` and `parakeet.cpu_bin` as `/opt/parakeet/parakeet-server`.
 Configure `llamacpp.vulkan_bin` as `/opt/llama/vulkan-server` to isolate the GPU runtime's library environment.

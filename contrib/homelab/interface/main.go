@@ -173,20 +173,7 @@ func (s *service) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == "GET" && r.URL.Path == "/ready" {
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-		defer cancel()
-		q, _ := http.NewRequestWithContext(ctx, "GET", strings.TrimSuffix(s.cfg.upstream.String(), "/")+"/live", nil)
-		resp, err := s.client.Do(q)
-		if err != nil {
-			http.Error(w, "backend unavailable", 503)
-			return
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != 200 {
-			http.Error(w, "backend unavailable", 503)
-			return
-		}
-		writeJSON(w, 200, map[string]bool{"backend": true})
+		s.serveCriticalReadiness(w, r)
 		return
 	}
 	if r.Method == "GET" && (r.URL.Path == "/v1/models" || r.URL.Path == "/api/tags") {
@@ -362,6 +349,13 @@ func main() {
 	s := newService(c)
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	if len(os.Args) == 2 && os.Args[1] == "--warmup" {
+		s.runWarmup(ctx)
+		return
+	}
+	if len(os.Args) != 1 {
+		log.Fatal("only --warmup is supported")
+	}
 	listener, err := net.Listen("tcp", c.voiceAddr)
 	if err != nil {
 		log.Fatal(err)

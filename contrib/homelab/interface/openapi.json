@@ -50,10 +50,13 @@
     },
     "/ready": {
       "get": {
-        "summary": "Manager connectivity.",
+        "summary": "Live readiness of all three critical Home Assistant models.",
         "responses": {
           "200": {
-            "description": "Successful response."
+            "description": "Every critical backend is loaded, healthy and pinned."
+          },
+          "503": {
+            "description": "Manager unavailable, or a critical model is missing, unhealthy or unpinned."
           }
         }
       }

@@ -12,7 +12,7 @@
 <nav aria-label="Service links">{{if .ChatURL}}<a href="{{.ChatURL}}">Open chat</a>{{end}}{{if .ManagerURL}}<a href="{{.ManagerURL}}">Manage models</a>{{end}}{{if .ConsoleURL}}<a href="{{.ConsoleURL}}">Container logs and console</a>{{end}}<a href="/openapi.json">OpenAPI contract</a><a href="/v1/models">Model discovery</a><a href="/ready">Check backend connection</a></nav>
 {{if .NoAuth}}<p>Leave the API key blank. Clients that require a value can use <code>unused</code>.</p>{{else}}<p>Use your consumer API key. The models below are available to this key.</p>{{end}}
 <h2>Choose a model</h2><div class="table"><table><thead><tr><th>Model</th><th>Purpose</th><th>Endpoint</th></tr></thead><tbody>{{range .Roles}}<tr><td><code>{{.ID}}</code></td><td>{{.Purpose}}</td><td><code>POST {{.Path}}</code></td></tr>{{end}}</tbody></table></div>
-<p>Models load on demand. Discovery lists configured roles; it does not mean every model is already loaded. Set temperature, top-p, top-k, min-p and output limits in each request when you need to override the role preset.</p>
+<p>Home Assistant's small model and speech models load at startup. The large Qwen and Skyfall models load on demand. Discovery lists configured roles; readiness checks the critical models. Set temperature, top-p, top-k, min-p and output limits in each request when you need to override the role preset.</p>
 <h2>Send a chat request</h2><pre>curl {{.PublicURL}}/v1/chat/completions \
   -H 'Content-Type: application/json' \
 {{if not .NoAuth}}  -H 'Authorization: Bearer YOUR_CONSUMER_KEY' \
