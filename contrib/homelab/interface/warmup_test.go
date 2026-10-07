@@ -149,6 +149,37 @@ func TestCriticalReadinessRequiresHealthyPinnedBackends(t *testing.T) {
 	}
 }
 
+func TestBusyCriticalModelRemainsReadyWithoutReload(t *testing.T) {
+	for _, busy := range criticalModels {
+		t.Run(busy.role, func(t *testing.T) {
+			s := testService(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != "GET" || r.URL.Path != "/api/v1/health" {
+					t.Errorf("busy resident model triggered lifecycle request: %s %s", r.Method, r.URL.Path)
+					http.Error(w, "unexpected reload", 500)
+					return
+				}
+				list := []modelResidency{}
+				for _, model := range criticalModels {
+					health := "ready"
+					if model.role == busy.role {
+						health = "busy"
+					}
+					list = append(list, modelResidency{Name: model.name, Loaded: true, Alive: true, BackendHealth: health, Pinned: true})
+				}
+				writeJSON(w, 200, map[string]any{"status": "ok", "all_models_loaded": list})
+			})
+			w := httptest.NewRecorder()
+			s.serveCriticalReadiness(w, httptest.NewRequest("GET", "/ready", nil))
+			if w.Code != 200 {
+				t.Errorf("serving model was unavailable: %s", w.Body.String())
+			}
+			if err := s.reconcileCriticalModels(context.Background()); err != nil {
+				t.Fatal("busy resident model was reconciled", err)
+			}
+		})
+	}
+}
+
 func TestWarmupDoesNotDownloadMissingModels(t *testing.T) {
 	loads := 0
 	s := testService(t, func(w http.ResponseWriter, r *http.Request) {

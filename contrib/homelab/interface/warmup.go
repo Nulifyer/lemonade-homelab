@@ -70,7 +70,9 @@ func (s *service) criticalState(ctx context.Context) (map[string]bool, error) {
 		ready[critical.role] = false
 		for _, model := range health.Models {
 			if model.Name == critical.name {
-				ready[critical.role] = model.Loaded && model.Alive && model.BackendHealth == "ready" && model.Pinned
+				// Busy means a healthy backend is serving, not that it needs recovery.
+				healthy := model.BackendHealth == "ready" || model.BackendHealth == "busy"
+				ready[critical.role] = model.Loaded && model.Alive && healthy && model.Pinned
 			}
 		}
 	}
