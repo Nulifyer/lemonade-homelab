@@ -161,6 +161,15 @@ func TestWAVFormats(t *testing.T) {
 	if _, _, err = unpackWAV(b[:46]); err == nil {
 		t.Fatal("accepted truncated WAV")
 	}
+	binary.LittleEndian.PutUint32(b[4:8], math.MaxUint32)
+	binary.LittleEndian.PutUint32(b[40:44], math.MaxUint32)
+	pcm, f, err = unpackWAV(b)
+	if err != nil || f.rate != 24000 || f.width != 2 || len(pcm) != 2 {
+		t.Fatal("rejected Kokoro streaming WAV", f, err)
+	}
+	if _, _, err = unpackWAV(b[:46]); err == nil {
+		t.Fatal("accepted incomplete float sample in streaming WAV")
+	}
 }
 func TestVoiceDescribeSynthesisAndFreshConnection(t *testing.T) {
 	s := testService(t, func(w http.ResponseWriter, r *http.Request) {
@@ -168,7 +177,10 @@ func TestVoiceDescribeSynthesisAndFreshConnection(t *testing.T) {
 			t.Error(r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "audio/wav")
-		w.Write(wav(make([]byte, 4800), audioFormat{24000, 2, 1}))
+		b := wav(make([]byte, 4800), audioFormat{24000, 2, 1})
+		binary.LittleEndian.PutUint32(b[4:8], math.MaxUint32)
+		binary.LittleEndian.PutUint32(b[40:44], math.MaxUint32)
+		w.Write(b)
 	})
 	for i := 0; i < 2; i++ {
 		server, client := net.Pipe()

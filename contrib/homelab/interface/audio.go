@@ -36,6 +36,12 @@ func unpackWAV(b []byte) ([]byte, audioFormat, error) {
 	for offset := 12; offset+8 <= len(b); {
 		size := int(binary.LittleEndian.Uint32(b[offset+4 : offset+8]))
 		start := offset + 8
+		// Kokoro emits a streaming WAV: its final data size is unknown until EOF.
+		// The HTTP reader has already bounded the complete response. Other chunks
+		// must still have their declared length, so truncated WAVs remain errors.
+		if size == math.MaxUint32 && string(b[offset:offset+4]) == "data" {
+			size = len(b) - start
+		}
 		if size > len(b)-start {
 			return nil, f, bad
 		}
