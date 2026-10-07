@@ -29,7 +29,7 @@ jobs:
           build-args: SOURCE_REVISION=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - run: printf '%s\n' '${{ steps.image.outputs.digest }}' > image-digest.txt
+      - run: echo '${{ steps.image.outputs.digest }}' > image-digest.txt
       - uses: actions/upload-artifact@v4
         with:
           name: image-digest

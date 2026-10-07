@@ -12,7 +12,7 @@ It rejects duplicate JSON keys and ambiguous model fields. It does not execute t
 Home Assistant uses Lemonade's existing Ollama compatibility through this interface.
 
 The voice interface bounds connections, utterance buffers, STT and TTS admission, HTTP requests and output buffers.
-It reads WAV sample rates and converts float32 samples when required.
+It reads WAV sample rates, accepts Kokoro's bounded streaming WAV header and converts float32 samples when required.
 Disconnecting a Wyoming client cancels its HTTP request. Failed POST requests are not replayed.
 Clients open a fresh session after disconnects. Model restart and host recovery require deployment tests.
 
@@ -32,7 +32,7 @@ for agent work. `INFERENCE_TIMEOUT` defaults to 20 minutes and accepts 15 second
 through 30 minutes. Set Lemonade and application deadlines to the same budget.
 Wyoming has no application authentication. Keep port 10300 on the private Home Assistant network.
 
-Verify the interface with `go test -race ./...` and `go vet ./...` in `contrib/homelab/interface`.
+Verify the interface with `go test -race -timeout 60s ./...` and `go vet ./...` in `contrib/homelab/interface`.
 The release image builds and tests the manager, pinned Parakeet source and Go interface before publishing.
 The Homelab repository owns Portainer settings, consumer migration and hardware acceptance evidence.
 
