@@ -13,6 +13,9 @@ export {
 
   // Recipe-specific interfaces
   LlamaOptions,
+  HybridOptions,
+  ParakeetOptions,
+  KokoroOptions,
   WhisperOptions,
   MoonshineOptions,
   FlmOptions,

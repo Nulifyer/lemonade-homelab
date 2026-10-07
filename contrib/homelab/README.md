@@ -66,12 +66,17 @@ Speech and image models do not inherit the global LLM context in model metadata.
 Kokoro download completeness and size include the model and voice files named
 by its index. Service aliases expose `alias_of` and share the canonical metadata.
 The model-management catalog lists canonical registrations without duplicate aliases.
+The hybrid options dialog exposes its saved context, NPU copy budget and llama.cpp
+arguments, including sampling settings. Its fixed native launcher has no GPU-only
+backend selector. Redux exposes bounded integer CPU threads. Speech dialogs omit
+LLM context controls. Pinning remains live state and does not replace startup restoration.
 
 Check these contracts without inference or downloads:
 
 ```bash
 ctest --test-dir build --output-on-failure -R '^ModelDownloadStateTest$'
 python3 test/homelab_model_metadata.py build/lemond
+node test/homelab_recipe_options.cjs
 ```
 
 `GET /` lists the approved model roles and their APIs. `GET /openapi.json` returns

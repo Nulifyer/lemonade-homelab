@@ -41,6 +41,29 @@ export interface LlamaOptions {
   saveOptions: BooleanOption;
 }
 
+export interface HybridOptions {
+  recipe: 'hybrid';
+  ctxSize: NumericOption;
+  hybridCopyGib: NumericOption;
+  llamacppArgs: StringOption;
+  mergeArgs: BooleanOption;
+  pinned: BooleanOption;
+  saveOptions: BooleanOption;
+}
+
+export interface ParakeetOptions {
+  recipe: 'parakeet';
+  parakeetThreads: NumericOption;
+  pinned: BooleanOption;
+  saveOptions: BooleanOption;
+}
+
+export interface KokoroOptions {
+  recipe: 'kokoro';
+  pinned: BooleanOption;
+  saveOptions: BooleanOption;
+}
+
 export interface WhisperOptions {
   recipe: 'whispercpp';
   whispercppBackend: StringOption;
@@ -126,7 +149,7 @@ export interface OpenMossOptions {
 }
 
 // Union type of all recipe options
-export type RecipeOptions = LlamaOptions | WhisperOptions | MoonshineOptions | FlmOptions | RyzenAIOptions | StableDiffusionOptions | VLLMOptions | ThinkSoundOptions | AceStepOptions | TrellisOptions | OpenMossOptions;
+export type RecipeOptions = LlamaOptions | HybridOptions | ParakeetOptions | KokoroOptions | WhisperOptions | MoonshineOptions | FlmOptions | RyzenAIOptions | StableDiffusionOptions | VLLMOptions | ThinkSoundOptions | AceStepOptions | TrellisOptions | OpenMossOptions;
 
 // =============================================================================
 // Recipe Constants
@@ -155,6 +178,7 @@ export interface NumericOptionDef {
   step: number;
   label: string;
   description?: string;
+  integer?: boolean;
 }
 
 export interface StringOptionDef {
@@ -180,6 +204,25 @@ export type OptionDef = NumericOptionDef | StringOptionDef | BooleanOptionDef;
 // =============================================================================
 
 export const OPTION_DEFINITIONS: Record<string, OptionDef> = {
+  hybridCopyGib: {
+    type: 'numeric',
+    default: 8,
+    min: 1,
+    max: 32,
+    step: 1,
+    label: 'NPU copy budget (GiB)',
+    description: 'Maximum prepared NPU weight copies; actual allocation depends on available memory',
+  },
+  parakeetThreads: {
+    type: 'numeric',
+    default: 4,
+    min: 1,
+    max: 12,
+    step: 1,
+    integer: true,
+    label: 'Transcription CPU threads',
+    description: 'CPU threads used by Parakeet Redux',
+  },
   // LLM context size option (shared by llamacpp, flm, ryzenai-llm)
   ctxSize: {
     type: 'numeric',
@@ -356,7 +399,7 @@ export const OPTION_DEFINITIONS: Record<string, OptionDef> = {
 // Recipe Configuration - Maps recipes to their available options
 // =============================================================================
 
-export type RecipeName = 'llamacpp' | 'whispercpp' | 'moonshine' | 'flm' | 'ryzenai-llm' | 'sd-cpp' | 'vllm' | 'thinksound' | 'acestep' | 'trellis' | 'openmoss';
+export type RecipeName = 'llamacpp' | 'hybrid' | 'parakeet' | 'kokoro' | 'whispercpp' | 'moonshine' | 'flm' | 'ryzenai-llm' | 'sd-cpp' | 'vllm' | 'thinksound' | 'acestep' | 'trellis' | 'openmoss';
 
 /**
  * Maps recipe names to the option keys they support.
@@ -364,6 +407,9 @@ export type RecipeName = 'llamacpp' | 'whispercpp' | 'moonshine' | 'flm' | 'ryze
  */
 export const RECIPE_OPTIONS_MAP: Record<RecipeName, string[]> = {
   'llamacpp': ['ctxSize', 'llamacppBackend', 'llamacppArgs', 'mergeArgs', 'pinned', 'saveOptions'],
+  'hybrid': ['ctxSize', 'hybridCopyGib', 'llamacppArgs', 'mergeArgs', 'pinned', 'saveOptions'],
+  'parakeet': ['parakeetThreads', 'pinned', 'saveOptions'],
+  'kokoro': ['pinned', 'saveOptions'],
   'whispercpp': ['whispercppBackend', 'whispercppArgs', 'mergeArgs', 'pinned', 'saveOptions'],
   'moonshine': ['moonshineArgs', 'mergeArgs', 'pinned', 'saveOptions'],
   'flm': ['ctxSize', 'mergeArgs', 'pinned', 'saveOptions'],
@@ -402,6 +448,8 @@ const FRONTEND_TO_API_MAP: Record<string, string> = {
   mergeArgs: 'merge_args',
   llamacppBackend: 'llamacpp_backend',
   llamacppArgs: 'llamacpp_args',
+  hybridCopyGib: 'hybrid_copy_gib',
+  parakeetThreads: 'parakeet_threads',
   whispercppBackend: 'whispercpp_backend',
   whispercppArgs: 'whispercpp_args',
   moonshineArgs: 'moonshine_args',
@@ -445,7 +493,8 @@ export function clampOptionValue(key: string, value: number): number {
     return def.default;
   }
 
-  return Math.min(Math.max(value, def.min), def.max);
+  const numericValue = def.integer ? Math.round(value) : value;
+  return Math.min(Math.max(numericValue, def.min), def.max);
 }
 
 /**

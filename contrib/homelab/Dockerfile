@@ -1,6 +1,6 @@
 FROM ubuntu:26.04 AS manager-build
 ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake ninja-build libssl-dev pkg-config libdrm-dev libcurl4-openssl-dev libzstd-dev git python3 nodejs npm && rm -rf /var/lib/apt/lists/*
+RUN sed -i 's|http://security.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends build-essential cmake ninja-build libssl-dev pkg-config libdrm-dev libcurl4-openssl-dev libzstd-dev git python3 nodejs npm && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY CMakeLists.txt README.md LICENSE ./
 COPY cmake/ ./cmake/
@@ -9,11 +9,11 @@ COPY docs/ ./docs/
 COPY test/ ./test/
 COPY data/ ./data/
 COPY tools/ ./tools/
-RUN printf '2026.42.0-homelab.3\n' > .version && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_WEB_APP=ON -DBUILD_TAURI_APP=OFF && cmake --build build -j4 --target lemond lemonade web-app test_backend_mode_contract test_recipe_options_precedence test_recipe_arg_resolution test_request_cancellation test_process_manager test_homelab_ollama test_model_download_state && ctest --test-dir build --output-on-failure -R '^(BackendModeContractTest|RecipeOptionsPrecedence|RecipeArgResolutionTest|RequestCancellationTest|ProcessManagerTest|HomelabOllamaTest|ModelDownloadStateTest)$' && python3 test/homelab_model_metadata.py build/lemond
+RUN printf '2026.42.0-homelab.3\n' > .version && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_WEB_APP=ON -DBUILD_TAURI_APP=OFF && cmake --build build -j4 --target lemond lemonade web-app test_backend_mode_contract test_recipe_options_precedence test_recipe_arg_resolution test_request_cancellation test_process_manager test_homelab_ollama test_model_download_state && ctest --test-dir build --output-on-failure -R '^(BackendModeContractTest|RecipeOptionsPrecedence|RecipeArgResolutionTest|RequestCancellationTest|ProcessManagerTest|HomelabOllamaTest|ModelDownloadStateTest)$' && python3 test/homelab_model_metadata.py build/lemond && node test/homelab_recipe_options.cjs
 
 FROM ubuntu:26.04 AS speech-build
 ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake git ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN sed -i 's|http://security.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends build-essential cmake git ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN git clone --recursive https://github.com/mudler/parakeet.cpp.git /src && cd /src && git checkout da8bb4c45d08e081e759849bc6ee0a38720eb0b9 && git submodule update --init --recursive
 WORKDIR /src
 RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DPARAKEET_BUILD_SERVER=ON -DPARAKEET_BUILD_TESTS=ON && cmake --build build -j4 && ctest --test-dir build --output-on-failure -LE model && mkdir -p /out/bin /out/lib && cp build/examples/server/parakeet-server /out/bin/ && find build -name '*.so*' -exec cp -a '{}' /out/lib/ ';'
@@ -28,7 +28,7 @@ USER root
 ARG DEBIAN_FRONTEND=noninteractive
 ARG SOURCE_REVISION=unknown
 LABEL org.opencontainers.image.source="https://github.com/Nulifyer/lemonade-homelab" org.opencontainers.image.revision="${SOURCE_REVISION}"
-RUN apt-get update && apt-get install -y --no-install-recommends libcurl4t64 libdrm2 unzip xz-utils zstd libreadline8t64 && rm -rf /var/lib/apt/lists/* && mkdir -p /opt/lemonade/.config/lemonade /opt/lemonade/.cache/huggingface /opt/lemonade/.cache/lemonade /opt/lemonade/llama /opt/lemonade/kv /run/lemonade && chown -R 10001:10001 /opt/lemonade /run/lemonade
+RUN sed -i 's|http://security.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends libcurl4t64 libdrm2 unzip xz-utils zstd libreadline8t64 && rm -rf /var/lib/apt/lists/* && mkdir -p /opt/lemonade/.config/lemonade /opt/lemonade/.cache/huggingface /opt/lemonade/.cache/lemonade /opt/lemonade/llama /opt/lemonade/kv /run/lemonade && chown -R 10001:10001 /opt/lemonade /run/lemonade
 COPY --from=manager-build /src/build/lemond /src/build/lemonade /opt/lemonade/
 COPY --from=manager-build /src/build/resources/ /opt/lemonade/resources/
 COPY --from=speech-build /out/ /opt/parakeet/
