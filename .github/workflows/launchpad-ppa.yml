@@ -8,8 +8,8 @@ on:
     branches:
       - main
       - 'release-v*'
-    tags:
-      - '*'
+    tags-ignore:
+      - 'homelab-v*'
   pull_request:
     types: [opened, synchronize, reopened, labeled]
     branches:

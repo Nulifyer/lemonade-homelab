@@ -8,6 +8,7 @@ COPY src/ ./src/
 COPY docs/ ./docs/
 COPY test/ ./test/
 COPY data/ ./data/
+COPY tools/ ./tools/
 RUN printf '2026.42.0-homelab.3\n' > .version && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_WEB_APP=ON -DBUILD_TAURI_APP=OFF && cmake --build build -j4 --target lemond lemonade web-app test_backend_mode_contract test_recipe_options_precedence test_recipe_arg_resolution test_request_cancellation test_process_manager test_homelab_ollama && ctest --test-dir build --output-on-failure -R '^(BackendModeContractTest|RecipeOptionsPrecedence|RecipeArgResolutionTest|RequestCancellationTest|ProcessManagerTest|HomelabOllamaTest)$'
 
 FROM ubuntu:26.04 AS speech-build
@@ -20,7 +21,7 @@ RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DPARAKEET_
 FROM golang:1.27 AS interface-build
 WORKDIR /src
 COPY contrib/homelab/interface/ .
-RUN go test -race ./... && go vet ./... && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/homelab-interface .
+RUN go test -race -timeout 60s ./... && go vet ./... && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/homelab-interface .
 
 FROM ghcr.io/nulifyer/llama-xdna-hybrid@sha256:982a586fdd49bfd181b8e4613ded8d8e857969bf650ecb44ee74c1120000118d
 USER root

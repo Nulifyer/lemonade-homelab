@@ -21,6 +21,7 @@ import (
 func TestInferenceDeadlineThenFreshRequest(t *testing.T) {
 	var calls atomic.Int64
 	s := testService(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
 		if calls.Add(1) == 1 {
 			<-r.Context().Done()
 			return
