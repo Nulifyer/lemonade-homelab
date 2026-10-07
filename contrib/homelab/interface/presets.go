@@ -36,6 +36,9 @@ func applyPreset(obj map[string]any, model, path string) error {
 		}
 	}
 	for key, value := range defaults {
+		if path == "/api/chat" && key == "max_tokens" {
+			key = "num_predict"
+		}
 		if _, supplied := target[key]; !supplied {
 			target[key] = value
 		}

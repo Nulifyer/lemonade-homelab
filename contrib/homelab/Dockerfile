@@ -2,8 +2,13 @@ FROM ubuntu:26.04 AS manager-build
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake ninja-build libssl-dev pkg-config libdrm-dev libcurl4-openssl-dev libzstd-dev git python3 nodejs npm && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
-COPY . .
-RUN printf '2026.42.0-homelab.2\n' > .version && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_WEB_APP=ON -DBUILD_TAURI_APP=OFF && cmake --build build -j4 --target lemond lemonade web-app test_backend_mode_contract test_recipe_options_precedence test_recipe_arg_resolution test_request_cancellation test_process_manager test_homelab_ollama && ctest --test-dir build --output-on-failure -R '^(BackendModeContractTest|RecipeOptionsPrecedence|RecipeArgResolutionTest|RequestCancellationTest|ProcessManagerTest|HomelabOllamaTest)$'
+COPY CMakeLists.txt README.md LICENSE ./
+COPY cmake/ ./cmake/
+COPY src/ ./src/
+COPY docs/ ./docs/
+COPY test/ ./test/
+COPY data/ ./data/
+RUN printf '2026.42.0-homelab.3\n' > .version && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_WEB_APP=ON -DBUILD_TAURI_APP=OFF && cmake --build build -j4 --target lemond lemonade web-app test_backend_mode_contract test_recipe_options_precedence test_recipe_arg_resolution test_request_cancellation test_process_manager test_homelab_ollama && ctest --test-dir build --output-on-failure -R '^(BackendModeContractTest|RecipeOptionsPrecedence|RecipeArgResolutionTest|RequestCancellationTest|ProcessManagerTest|HomelabOllamaTest)$'
 
 FROM ubuntu:26.04 AS speech-build
 ARG DEBIAN_FRONTEND=noninteractive

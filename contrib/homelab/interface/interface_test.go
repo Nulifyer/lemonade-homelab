@@ -13,9 +13,35 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestInferenceDeadlineThenFreshRequest(t *testing.T) {
+	var calls atomic.Int64
+	s := testService(t, func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			<-r.Context().Done()
+			return
+		}
+		writeJSON(w, 200, map[string]bool{"recovered": true})
+	})
+	s.cfg.inferenceTimeout = 30 * time.Millisecond
+	for i, status := range []int{502, 200} {
+		q := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{"model":"small-task","messages":[]}`))
+		q.Header.Set("Content-Type", "application/json")
+		q.Header.Set("Authorization", "Bearer "+strings.Repeat("h", 32))
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, q)
+		if w.Code != status {
+			t.Fatalf("request %d: status %d", i, w.Code)
+		}
+	}
+	if calls.Load() != 2 {
+		t.Fatal("failed POST was replayed")
+	}
+}
 
 func testService(t *testing.T, handler http.HandlerFunc) *service {
 	t.Helper()

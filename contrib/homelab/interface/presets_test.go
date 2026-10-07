@@ -16,6 +16,13 @@ func TestRolePresetsAndClientOverrides(t *testing.T) {
 		if err := applyPreset(obj, "small-task", path); err != nil {
 			t.Fatal(err)
 		}
+		limitKey := "max_tokens"
+		if path == "/api/chat" {
+			limitKey = "num_predict"
+		}
+		if target[limitKey] != float64(256) {
+			t.Fatal("output limit was lost")
+		}
 		if target["temperature"] != 0.25 || target["min_p"] != 0.1 || target["top_k"] != float64(20) || target["repeat_penalty"] != float64(1) {
 			t.Fatalf("incorrect settings: %v", target)
 		}

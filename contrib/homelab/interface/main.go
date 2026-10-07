@@ -27,6 +27,7 @@ type config struct {
 	clients             map[string]map[string]bool
 	voice               string
 	httpAddr, voiceAddr string
+	inferenceTimeout    time.Duration
 }
 
 type service struct {
@@ -44,7 +45,13 @@ func readConfig() (config, error) {
 	if err != nil || u == nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil {
 		return config{}, errors.New("LEMONADE_URL must be an HTTP backend URL")
 	}
-	c := config{upstream: u, backendKey: os.Getenv("LEMONADE_BACKEND_KEY"), voice: "af_heart", httpAddr: ":8080", voiceAddr: ":10300", clients: map[string]map[string]bool{}}
+	c := config{upstream: u, backendKey: os.Getenv("LEMONADE_BACKEND_KEY"), voice: "af_heart", httpAddr: ":8080", voiceAddr: ":10300", inferenceTimeout: 20 * time.Minute, clients: map[string]map[string]bool{}}
+	if v := os.Getenv("INFERENCE_TIMEOUT"); v != "" {
+		c.inferenceTimeout, err = time.ParseDuration(v)
+		if err != nil || c.inferenceTimeout < 15*time.Second || c.inferenceTimeout > 30*time.Minute {
+			return c, errors.New("INFERENCE_TIMEOUT must be between 15s and 30m")
+		}
+	}
 	for _, p := range []struct {
 		env    string
 		models []string
@@ -78,7 +85,10 @@ func readConfig() (config, error) {
 }
 
 func newService(c config) *service {
-	transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext, MaxIdleConns: 16, MaxIdleConnsPerHost: 8, IdleConnTimeout: 30 * time.Second, ResponseHeaderTimeout: 600 * time.Second}
+	if c.inferenceTimeout <= 0 {
+		c.inferenceTimeout = 20 * time.Minute
+	}
+	transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext, MaxIdleConns: 16, MaxIdleConnsPerHost: 8, IdleConnTimeout: 30 * time.Second, ResponseHeaderTimeout: c.inferenceTimeout}
 	s := &service{cfg: c, client: &http.Client{Transport: transport, Timeout: 70 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, stt: make(chan struct{}, 1), tts: make(chan struct{}, 1), admitted: make(chan struct{}, 8), voiceClients: make(chan struct{}, 16)}
 	s.proxy = &httputil.ReverseProxy{Transport: transport, FlushInterval: -1, Rewrite: func(pr *httputil.ProxyRequest) {
 		pr.SetURL(c.upstream)
@@ -277,7 +287,7 @@ func (s *service) forward(w http.ResponseWriter, r *http.Request, body []byte) {
 		http.Error(w, "inference queue full", 429)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(r.Context(), s.cfg.inferenceTimeout)
 	defer cancel()
 	r = r.WithContext(ctx)
 	r.Body = io.NopCloser(strings.NewReader(string(body)))

@@ -27,6 +27,9 @@ The default utility voice is `af_heart`. Use the tested `TTS_VOICE` value from t
 `interface/presets.json` owns sampling defaults for each role. The interface fills missing
 temperature, top-p, top-k, min-p and penalty fields; explicit client values win.
 Ollama options use the same mappings as the OpenAI-compatible routes.
+Default output limits are 256 tokens for small tasks, 1024 for roleplay and 2048
+for agent work. `INFERENCE_TIMEOUT` defaults to 20 minutes and accepts 15 seconds
+through 30 minutes. Set Lemonade and application deadlines to the same budget.
 Wyoming has no application authentication. Keep port 10300 on the private Home Assistant network.
 
 Verify the interface with `go test -race ./...` and `go vet ./...` in `contrib/homelab/interface`.
