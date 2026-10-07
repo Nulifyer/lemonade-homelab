@@ -1,0 +1,5 @@
+#!/bin/sh
+export LD_LIBRARY_PATH=/opt/llama
+export GGML_BACKEND_PATH=
+export LLAMA_API_KEY=
+exec /opt/llama/llama-server --host 127.0.0.1 "$@"

@@ -17,12 +17,16 @@ Disconnecting a Wyoming client cancels its HTTP request. Failed POST requests ar
 Clients open a fresh session after disconnects. Model restart and host recovery require deployment tests.
 
 Configure `hybrid.npu_bin` as `/opt/llama/hybrid-server` and `parakeet.cpu_bin` as `/opt/parakeet/parakeet-server`.
+Configure `llamacpp.vulkan_bin` as `/opt/llama/vulkan-server` to isolate the GPU runtime's library environment.
 Each hybrid model stores `hybrid_copy_gib`, `ctx_size` and `llamacpp_args` in its recipe options.
 Do not run an independent FLM or standalone hybrid stack alongside this manager's NPU workloads.
 
 The interface requires `LEMONADE_URL`, `LEMONADE_BACKEND_KEY`, `HA_API_KEY`, `LUNCHLOXS_API_KEY`,
 `ROLEPLAY_API_KEY` and `GENERAL_API_KEY`. Consumer keys must be distinct and at least 32 characters.
 The default utility voice is `af_heart`. Use the tested `TTS_VOICE` value from the deployment manifest.
+`interface/presets.json` owns sampling defaults for each role. The interface fills missing
+temperature, top-p, top-k, min-p and penalty fields; explicit client values win.
+Ollama options use the same mappings as the OpenAI-compatible routes.
 Wyoming has no application authentication. Keep port 10300 on the private Home Assistant network.
 
 Verify the interface with `go test -race ./...` and `go vet ./...` in `contrib/homelab/interface`.

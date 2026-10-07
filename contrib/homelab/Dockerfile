@@ -27,6 +27,7 @@ COPY --from=manager-build /src/build/lemond /src/build/lemonade /opt/lemonade/
 COPY --from=manager-build /src/build/resources/ /opt/lemonade/resources/
 COPY --from=speech-build /out/ /opt/parakeet/
 COPY --from=interface-build /out/homelab-interface /opt/lemonade/
+COPY --chmod=755 contrib/homelab/vulkan-server /opt/llama/vulkan-server
 RUN printf '#!/bin/sh\nexport LD_LIBRARY_PATH=/opt/parakeet/lib\nexec /opt/parakeet/bin/parakeet-server "$@"\n' > /opt/parakeet/parakeet-server && chmod 755 /opt/parakeet/parakeet-server
 ENV HOME=/opt/lemonade XDG_RUNTIME_DIR=/run/lemonade PATH=/opt/lemonade:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin LD_LIBRARY_PATH="" GGML_BACKEND_PATH=""
 WORKDIR /opt/lemonade
