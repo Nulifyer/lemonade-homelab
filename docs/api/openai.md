@@ -1035,6 +1035,7 @@ curl http://localhost:13305/v1/models?show_all=true
 - `object` - Type of response object, always `"list"`
 - `data` - Array of model objects with the following fields:
   - `id` - Model identifier (used for loading and inference requests)
+  - `alias_of` - Canonical public target name for a service alias. Omitted on actual model registrations. Aliases share the target's weights and metadata.
   - `created` - Unix timestamp of when the model entry was created
   - `object` - Type of object, always `"model"`
   - `owned_by` - Owner of the model, always `"lemonade"`
@@ -1042,7 +1043,7 @@ curl http://localhost:13305/v1/models?show_all=true
   - `recipe` - Backend/device recipe used to load the model (e.g., `"ryzenai-llm"`, `"llamacpp"`, `"flm"`)
   - `size` - Model size in GB (omitted for models without size information)
   - `max_context_window` - Optional integer indicating the maximum model-supported text context discovered from local static metadata. Currently populated for downloaded GGUF/llama.cpp models and installed FLM text-context models.
-  - `context_length` - Number of tokens the model can handle in one request. Uses the loaded value when the model is running, the configured `ctx_size`, or the discovered cloud provider context length otherwise (omitted when neither is known).
+  - `context_length` - Number of tokens the model can handle in one request. Text backends use the loaded value or configured `ctx_size`. Cloud models use discovered provider limits. Speech and image backends do not inherit the server's text context.
   - `max_output_tokens` - Optional integer indicating the maximum output tokens the model can generate in a single completion, when reported by cloud providers.
   - `max_completion_tokens` - Optional integer alias for `max_output_tokens` adhering to OpenAI convention, when reported by cloud providers.
   - `downloaded` - Boolean indicating if the model is downloaded and available locally

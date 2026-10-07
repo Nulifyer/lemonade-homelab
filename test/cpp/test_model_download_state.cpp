@@ -1,4 +1,6 @@
 #include "lemon/model_manager.h"
+#include "lemon/backends/backend_ops.h"
+#include "lemon/backends/backend_registry.h"
 #include "lemon/utils/path_utils.h"
 
 #include <chrono>
@@ -213,6 +215,40 @@ static void test_collection_component_download_state(
           !manager.get_model_info("user.coll-test").downloaded);
 }
 
+static void test_kokoro_artifacts(ModelManager& manager, const fs::path& root) {
+    const fs::path dir = root / "kokoro";
+    write_file(dir / "index.json", R"({"model":"model.onnx","voices":"voices.bin"})");
+    write_file(dir / "model.onnx", std::string(2 * 1024 * 1024, 'm'));
+    manager.register_model("user.kokoro-test",
+        json{{"checkpoint", path_to_utf8(dir / "index.json")},
+             {"recipe", "kokoro"}, {"source", "local_path"}}, true, true);
+    check("Kokoro index without voices is not downloaded",
+          !manager.get_model_info("user.kokoro-test").downloaded);
+    write_file(dir / "voices.bin", std::string(1024 * 1024, 'v'));
+    manager.invalidate_models_cache();
+    const auto info = manager.get_model_info("user.kokoro-test");
+    check("Kokoro weights and voices establish download completeness", info.downloaded);
+    check("Kokoro size includes weights and voices", info.size == 0.003);
+    const auto files = manager.list_model_files("user.kokoro-test");
+    check("Kokoro files include index, model and voices", files.size() == 3);
+    write_file(dir / "index.json", "malformed");
+    manager.invalidate_models_cache();
+    check("Malformed Kokoro index does not report downloaded",
+          !manager.get_model_info("user.kokoro-test").downloaded);
+}
+
+static void test_hybrid_capabilities() {
+    ModelInfo info;
+    info.recipe = "hybrid";
+    info.labels = {"chat", "tool-calling", "mtp", "vision"};
+    lemon::backends::ops_for("hybrid")->populate_metadata(info, {});
+    check("Hybrid advertises only accepted text capabilities",
+          info.labels == std::vector<std::string>({"chat", "tool-calling"}));
+    check("Hybrid retains GGUF registration validation",
+          !lemon::backends::ops_for("hybrid")->validate_registration_checkpoint(
+              "org/model-GGUF").empty());
+}
+
 int main() {
     fs::path temp = make_temp_dir();
     fs::path hf_root = temp / "hf";
@@ -231,6 +267,8 @@ int main() {
         test_hf_manifest_marks_variant_incomplete(manager, fixtures);
         test_variantless_snapshot_commit_state(manager, fixtures);
         test_collection_component_download_state(manager, fixtures);
+        test_kokoro_artifacts(manager, temp);
+        test_hybrid_capabilities();
     }
 
     fs::remove_all(temp);

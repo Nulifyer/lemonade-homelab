@@ -58,6 +58,22 @@ The Homelab repository owns Portainer settings, consumer migration and hardware 
 
 ## Service discovery and logs
 
+The native hybrid catalog advertises the accepted text and tool-calling features.
+It omits vision and MTP labels even when the checkpoint contains those features.
+The deployed native profile uses text input and disables speculative decoding.
+Other llama.cpp registrations retain their own checkpoint capabilities.
+Speech and image models do not inherit the global LLM context in model metadata.
+Kokoro download completeness and size include the model and voice files named
+by its index. Service aliases expose `alias_of` and share the canonical metadata.
+The model-management catalog lists canonical registrations without duplicate aliases.
+
+Check these contracts without inference or downloads:
+
+```bash
+ctest --test-dir build --output-on-failure -R '^ModelDownloadStateTest$'
+python3 test/homelab_model_metadata.py build/lemond
+```
+
 `GET /` lists the approved model roles and their APIs. `GET /openapi.json` returns
 the inference contract, filtered to the consumer scope in key mode. Set
 `AI_PUBLIC_URL`, `CHAT_URL`, `MANAGER_URL` and `CONSOLE_URL` to publish service links.

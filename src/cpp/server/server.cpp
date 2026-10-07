@@ -2895,8 +2895,9 @@ void Server::handle_models(const httplib::Request& req, httplib::Response& res) 
                 ultimate_target = *resolved;
             }
             std::string canonical_target = model_manager_->resolve_model_name(ultimate_target);
-            if (models.count(canonical_target) > 0) {
-                response["data"].push_back(model_info_to_json(alias_id, models.at(canonical_target)));
+            std::string public_target = model_manager_->get_public_model_name(canonical_target);
+            if (models.count(public_target) > 0) {
+                response["data"].push_back(model_info_to_json(alias_id, models.at(public_target)));
             } else if (models.count(ultimate_target) > 0) {
                 response["data"].push_back(model_info_to_json(alias_id, models.at(ultimate_target)));
             }
@@ -3140,6 +3141,10 @@ void Server::handle_model_register(const httplib::Request& req, httplib::Respons
 }
 
 int64_t Server::resolve_context_length(const std::string& model_id, const ModelInfo& info) const {
+    const auto* descriptor = backends::descriptor_for(info.recipe);
+    if (!descriptor || !descriptor->uses_ctx_size) {
+        return info.max_context_window > 0 ? info.max_context_window : 0;
+    }
     // ctx_size stores -1 for "size this automatically", so only a positive
     // value answers; anything else falls through to the next source.
     auto ctx_size_of = [](const RecipeOptions& options) -> int64_t {
@@ -3199,6 +3204,12 @@ nlohmann::json Server::model_info_to_json(const std::string& model_id, const Mod
         {"components", public_components},
         {"recipe_options", info.recipe_options.to_json()},
     };
+
+    if (alias_manager_) {
+        if (auto target = alias_manager_->resolve_alias(model_id)) {
+            model_json["alias_of"] = model_manager_->get_public_model_name(*target);
+        }
+    }
 
     // Surface the cloud provider on cloud entries so the Model Manager can
     // bucket each provider into its own sub-heading. Omitted on local models

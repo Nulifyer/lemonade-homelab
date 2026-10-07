@@ -215,6 +215,25 @@ std::unique_ptr<WrappedServer> create(const BackendContext& ctx) {
 namespace {
 class KokoroOps : public BackendOps {
 public:
+    void populate_metadata(ModelInfo& info, const BackendOpsContext&) const override {
+        const auto files = model_files(info);
+        info.resolved_paths.insert(files.begin(), files.end());
+    }
+
+    bool is_downloaded(const ModelInfo& info, const BackendOpsContext& ctx) const override {
+        if (!BackendOps::is_downloaded(info, ctx)) return false;
+        const auto files = model_files(info);
+        if (files.size() != 2) return false;
+        for (const auto& [role, path] : files) {
+            (void)role;
+            std::error_code ec;
+            if (!std::filesystem::is_regular_file(lemon::utils::path_from_utf8(path), ec)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     std::string resolve_checkpoint_path(const ModelInfo&,
                                         const CheckpointResolveContext& ctx) const override {
         // Kokoro models are a directory; resolve to the index.json file inside.
@@ -228,6 +247,24 @@ public:
             }
         }
         return ctx.model_cache_path;  // directory even if index not found
+    }
+
+private:
+    static std::map<std::string, std::string> model_files(const ModelInfo& info) {
+        const auto index_path = lemon::utils::path_from_utf8(info.resolved_path());
+        try {
+            const auto index = JsonUtils::load_from_file(index_path.string());
+            std::map<std::string, std::string> files;
+            for (const auto* role : {"model", "voices"}) {
+                if (!index.contains(role) || !index[role].is_string()) return {};
+                const std::string filename = index[role].get<std::string>();
+                if (filename.empty()) return {};
+                files[role] = lemon::utils::path_to_utf8(index_path.parent_path() / filename);
+            }
+            return files;
+        } catch (const std::exception&) {
+            return {};
+        }
     }
 };
 }  // namespace
