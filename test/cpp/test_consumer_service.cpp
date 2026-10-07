@@ -1,3 +1,4 @@
+#include "lemon/consumer_mcp.h"
 #include "lemon/consumer_service.h"
 #include "lemon/model_manager.h"
 #include "lemon/router.h"
@@ -5,6 +6,7 @@
 #include "lemon/utils/path_utils.h"
 #include "lemon/wrapped_server.h"
 #include <chrono>
+#include <condition_variable>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -128,7 +130,7 @@ struct RoutingHelperTestHook {
         router.loaded_servers_.push_back(std::make_unique<IdentityTestServer>(name));
     }
 };
-}
+} // namespace lemon
 void model_identity_contract() {
     namespace fs = std::filesystem;
     const auto root = fs::temp_directory_path() /
@@ -178,10 +180,74 @@ void model_identity_contract() {
     fs::remove_all(root);
 }
 int main() {
+    int reads = 0;
+    const json documents = {
+        {"architecture", "Reviewed fixture, no credentials"}};
+    auto read = [&](const std::string &path) {
+        ++reads;
+        return json{{"path", path}};
+    };
+    auto rpc = [&](const std::string &method, json params = json::object()) {
+        return *lemon::consumer_mcp({{"jsonrpc", "2.0"},
+                                     {"id", 7},
+                                     {"method", method},
+                                     {"params", params}},
+                                    documents, read);
+    };
+    auto tools = rpc("tools/list")["result"]["tools"];
+    check(tools.size() == 4 &&
+              tools[3]["inputSchema"]["properties"]["name"]["enum"][0] ==
+                  "architecture",
+          "Runbook catalog missing");
+    auto doc = rpc("tools/call", {{"name", "read_runbook"},
+                                  {"arguments", {{"name", "architecture"}}}});
+    check(json::parse(
+              doc["result"]["content"][0]["text"].get<std::string>())["text"] ==
+              documents["architecture"],
+          "Runbook read failed");
+    check(rpc("tools/call", {{"name", "read_runbook"},
+                             {"arguments", {{"name", "../../etc/passwd"}}}})
+                  .contains("error") &&
+              reads == 0,
+          "Arbitrary file read accepted");
+    check(rpc("tools/call", {{"name", "model_services"},
+                             {"arguments", {{"command", "stop"}}}})
+                  .contains("error") &&
+              reads == 0,
+          "Unexpected tool arguments accepted");
+    check(rpc("tools/call", {{"name", "load_model"}}).contains("error") &&
+              reads == 0,
+          "Lifecycle tool exposed");
+    check(!lemon::consumer_mcp(
+               {{"jsonrpc", "2.0"}, {"method", "notifications/initialized"}},
+               documents, read)
+               .has_value(),
+          "Notification must have no RPC response");
+    auto image = [](const json &) {
+        return json{{"data", json::array({{{"b64_json", "cG5n"}}})}};
+    };
+    auto image_tools = *lemon::consumer_mcp(
+        {{"jsonrpc", "2.0"}, {"id", 1}, {"method", "tools/list"}}, documents,
+        read, image);
+    check(image_tools["result"]["tools"].size() == 1 &&
+              !image_tools["result"]["tools"][0]["annotations"]["readOnlyHint"]
+                   .get<bool>(),
+          "Image tool scope was mixed with read-only tools");
+    auto image_call = *lemon::consumer_mcp(
+        {{"jsonrpc", "2.0"},
+         {"id", 1},
+         {"method", "tools/call"},
+         {"params",
+          {{"name", "generate_image"}, {"arguments", {{"prompt", "A cube"}}}}}},
+        documents, read, image);
+    check(image_call["result"]["content"][0]["type"] == "image",
+          "MCP image block missing");
     const auto defaults = lemon::ConsumerConfig::defaults();
     check(defaults["critical_models"].size() == 3, "Wrong critical defaults");
     for (const json &input :
          {json{{"unknown", true}}, json{{"port", 0}}, json{{"port", 10300}},
+          json{{"documents", {{"bad/path", "text"}}}},
+          json{{"documents", {{"oversized", std::string(16385, 'x')}}}},
           json{{"enabled", "yes"}}, json{{"critical_models", nullptr}},
           json{{"critical_models", {"small-task", "small-task"}}},
           json{{"public_url", "http://user:secret@host"}},
@@ -270,7 +336,7 @@ int main() {
         httplib::Response res;
         service.handle(request(std::string(prefix) + "models"), res);
         auto body = json::parse(res.body);
-        check(res.status == 200 && body["data"].size() == 5 &&
+        check(res.status == 200 && body["data"].size() == 6 &&
                   body["data"][0].contains("alias_of"),
               "Role discovery failed");
     }
@@ -291,6 +357,70 @@ int main() {
                                         {"temperature", 0.4},
                                         {"min_p", 0.1}}) == 200,
           "Chat rejected");
+    int image_releases = 0;
+    double headroom = 32;
+    bool image_entered = false, image_continue = false;
+    std::mutex image_mutex;
+    std::condition_variable image_wake;
+    auto image_manager = manager;
+    image_manager.available_memory_gib = [&] { return headroom; };
+    image_manager.release_image = [&](const std::string &role) {
+        check(role == "image-generation", "Wrong release role");
+        ++image_releases;
+    };
+    image_manager.invoke = [&](const std::string &path, const auto &req,
+                               auto &res) {
+        check(path == "/api/v1/images/generations", "Wrong image handler");
+        auto body = json::parse(req.body);
+        check(body["n"] == 1 && body["steps"] == 4 && body["size"] == "512x512",
+              "Image defaults absent");
+        std::unique_lock lock(image_mutex);
+        image_entered = true;
+        image_wake.notify_all();
+        image_wake.wait(lock, [&] { return image_continue; });
+        res.status = 200;
+        res.set_content("{\"data\":[{\"b64_json\":\"cG5n\"}]}",
+                        "application/json");
+    };
+    ConsumerService images(lemon::ConsumerConfig::parse(json::object()),
+                           image_manager);
+    auto image_request =
+        request("/v1/images/generations",
+                {{"model", "image-generation"}, {"prompt", "A cube"}});
+    headroom = 2;
+    httplib::Response low;
+    images.handle(image_request, low);
+    check(low.status == 503 && image_releases == 0,
+          "Image budget guard failed");
+    headroom = 32;
+    httplib::Response first;
+    std::thread image_thread([&] { images.handle(image_request, first); });
+    {
+        std::unique_lock lock(image_mutex);
+        image_wake.wait(lock, [&] { return image_entered; });
+    }
+    httplib::Response second;
+    images.handle(image_request, second);
+    check(second.status == 429, "Concurrent image job accepted");
+    {
+        std::lock_guard lock(image_mutex);
+        image_continue = true;
+    }
+    image_wake.notify_all();
+    image_thread.join();
+    check(first.status == 200 && image_releases == 1,
+          "Image runtime was not released after the job");
+    for (auto extra :
+         {json{{"n", 2}}, json{{"size", "4096x4096"}}, json{{"steps", 9}},
+          json{{"cfg_scale", 5}}, json{{"prompt", "x <sd_cpp_extra_args>y"}}}) {
+        auto bad = image_request;
+        auto body = json::parse(bad.body);
+        body.update(extra);
+        bad.body = body.dump();
+        httplib::Response output;
+        images.handle(bad, output);
+        check(output.status == 400, "Unbounded image request accepted");
+    }
     check(captured["temperature"] == 0.4 && captured["min_p"] == 0.1 &&
               captured["max_tokens"] == 256,
           "Explicit sampling overwritten");

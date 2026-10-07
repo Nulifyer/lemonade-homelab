@@ -686,6 +686,14 @@ Server::Server(std::shared_ptr<RuntimeConfig> config,
             if (result.contains("error")) throw std::runtime_error("Speech model unavailable");
             return result.at("voices");
         };
+        manager.available_memory_gib = [this] {
+            auto budget = metrics_platform_->get_resource_budget(json::array());
+            return budget.value("host_available_gib", json(nullptr)).is_number() ? budget["host_available_gib"].get<double>() : -1.0;
+        };
+        manager.release_image = [this](const std::string& role) {
+            const auto name = model_manager_->resolve_model_name(resolve_alias_target(role));
+            router_->unload_model(name);
+        };
         manager.health = [this] { return router_->get_all_loaded_models(); };
         manager.metadata = [this](const std::string& role) {
             auto name = resolve_alias_target(role);
@@ -715,6 +723,7 @@ Server::Server(std::shared_ptr<RuntimeConfig> config,
             else if (path == "/api/v1/completions") handle_completions(req, res);
             else if (path == "/api/v1/responses") handle_responses(req, res);
             else if (path == "/api/v1/audio/speech") handle_audio_speech(req, res);
+            else if (path == "/api/v1/images/generations") handle_image_generations(req, res);
             else if (path == "/api/v1/audio/transcriptions") handle_audio_transcriptions(req, res);
             else ollama->handle_consumer_request(req, res);
         };
@@ -5290,6 +5299,9 @@ void Server::handle_3d_generations(const httplib::Request& req, httplib::Respons
 }
 
 void Server::handle_image_generations(const httplib::Request& req, httplib::Response& res) {
+    utils::RequestCancelToken cancel_token;
+    if (req.is_connection_closed) cancel_token.should_cancel = [closed = req.is_connection_closed] { return closed && closed(); };
+    WrappedServer::RequestCancelScope cancel_scope(cancel_token);
     try {
         LOG(INFO, "Server") << "POST /api/v1/images/generations" << std::endl;
 

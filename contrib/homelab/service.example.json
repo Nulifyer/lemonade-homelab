@@ -7,10 +7,15 @@
     "wyoming_port": 10300,
     "tts_voice": "af_heart",
     "inference_timeout_seconds": 1200,
-    "critical_models": ["small-task", "speech-stt", "speech-tts"],
+    "critical_models": [
+      "small-task",
+      "speech-stt",
+      "speech-tts"
+    ],
     "public_url": "https://ai.swarm.nulteck.com",
     "chat_url": "https://chat.swarm.nulteck.com",
     "manager_url": "https://lemonade.swarm.nulteck.com/app",
-    "console_url": "https://portainer.swarm.nulteck.com"
+    "console_url": "https://portainer.swarm.nulteck.com",
+    "documents": {}
   }
 }

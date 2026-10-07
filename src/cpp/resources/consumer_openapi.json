@@ -651,6 +651,48 @@
           }
         }
       }
+    },
+    "/mcp": {
+      "post": {
+        "summary": "Stateless read-only MCP for model services, critical readiness, voice discovery and named reviewed runbooks. No administration or arbitrary file access.",
+        "responses": {
+          "200": {
+            "description": "JSON-RPC response"
+          },
+          "202": {
+            "description": "Notification accepted"
+          }
+        }
+      }
+    },
+    "/v1/images/generations": {
+      "post": {
+        "summary": "One compact image-generation job. Fixed configured size, 1\u20138 steps, bounded plain prompt and base64 PNG response. The image runtime unloads after each job or disconnect; text and speech remain resident.",
+        "responses": {
+          "200": {
+            "description": "Generated image"
+          },
+          "400": {
+            "description": "Unsupported or ambiguous options"
+          },
+          "429": {
+            "description": "An image job is already active"
+          },
+          "503": {
+            "description": "Insufficient host memory headroom"
+          }
+        }
+      }
+    },
+    "/mcp/images": {
+      "post": {
+        "summary": "Stateless image-only MCP. generate_image returns a PNG content block. Separate from the read-only /mcp tools.",
+        "responses": {
+          "200": {
+            "description": "JSON-RPC response"
+          }
+        }
+      }
     }
   },
   "components": {

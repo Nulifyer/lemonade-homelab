@@ -1031,6 +1031,7 @@ set(SOURCES_CORE
     src/cpp/server/log_stream.cpp
     src/cpp/server/api_docs.cpp
     src/cpp/server/resource_budget.cpp
+    src/cpp/server/consumer_mcp.cpp
     src/cpp/server/prometheus_metrics.cpp
     src/cpp/server/utils/http_client.cpp
     src/cpp/server/utils/json_utils.cpp

@@ -142,3 +142,30 @@ Model revisions are checked at startup when `auto_check_model_updates` is true.
 The dialog can run `POST /api/v1/models/check-updates` and list downloaded
 models with newer revisions. Checks never download weights; automatic model
 updates remain disabled. Existing download controls apply an update explicitly.
+
+## Consumer tools
+
+The consumer listener exposes stateless Streamable HTTP MCP at `/mcp`. Its
+read-only tools inspect model services, critical readiness and installed voices.
+`consumer.documents` optionally supplies named reviewed runbook text. Each text
+is limited to 16 KiB, with 16 names and 64 KiB total. `read_runbook` accepts only
+those names. It cannot read host files, run commands, change models or download
+weights. Runbooks describe configured design, not current infrastructure state.
+The manager's upstream `/mcp` remains a separate, broader inference interface.
+Connect ordinary chat clients to the consumer MCP listener.
+
+## Compact images
+
+The consumer `image-generation` alias serves `POST /v1/images/generations`.
+It accepts a plain prompt of at most 2000 bytes, one base64 image, configured
+`image_size` (256x256 or 512x512), `steps` (1 through `image_max_steps`, at most
+8), and an optional integer seed. Backend control tags and extra options are
+rejected. One image job can run at a time. `image_min_available_gib` defaults
+to 12 GiB of host available RAM before admission. This is a snapshot guard,
+not a reservation. Unknown platform counters do not invent a budget.
+
+The image-only MCP endpoint `/mcp/images` supplies `generate_image`, returning
+a PNG content block. It uses the same admission and API policy. The native
+Router unloads the image child after every consumer job, including a disconnect,
+while text and speech runtimes remain loaded. Images are never critical startup
+models. Manager requests retain normal explicit model-management behavior.

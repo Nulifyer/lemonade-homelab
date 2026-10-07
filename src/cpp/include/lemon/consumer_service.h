@@ -22,6 +22,8 @@ class ConsumerService {
     struct Manager {
         nlohmann::json openapi;
         std::function<void()> failed;
+        std::function<void(const std::string &)> release_image;
+        std::function<double()> available_memory_gib;
         std::function<void(const std::string &, const httplib::Request &,
                            httplib::Response &)>
             invoke;

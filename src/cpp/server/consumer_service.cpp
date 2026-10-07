@@ -1,4 +1,5 @@
 #include "lemon/consumer_service.h"
+#include "lemon/consumer_mcp.h"
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -20,8 +21,10 @@ const std::map<std::string, std::string> purposes = {
     {"agent-work", "Research, coding and general tasks"},
     {"chat-roleplay", "Roleplay and conversation"},
     {"speech-stt", "English speech to text"},
-    {"speech-tts", "English utility speech"}};
-const std::vector<std::string> prefixes = {"/api/v0/", "/api/v1/", "/v0/", "/v1/"};
+    {"speech-tts", "English utility speech"},
+    {"image-generation", "Compact on-demand image generation"}};
+const std::vector<std::string> prefixes = {"/api/v0/", "/api/v1/", "/v0/",
+                                           "/v1/"};
 std::string endpoint(const std::string &path) {
     for (const auto &prefix : prefixes)
         if (path.rfind(prefix, 0) == 0)
@@ -141,11 +144,16 @@ json ConsumerConfig::defaults() {
             {"reconcile_interval_seconds", 10},
             {"max_inflight", 8},
             {"max_voice_clients", 16},
+            {"image_max_steps", 8},
+            {"image_timeout_seconds", 300},
+            {"image_size", "512x512"},
+            {"image_min_available_gib", 12},
             {"critical_models", {"small-task", "speech-stt", "speech-tts"}},
             {"public_url", "http://localhost:8080"},
             {"chat_url", ""},
             {"manager_url", ""},
             {"console_url", ""},
+            {"documents", json::object()},
             {"presets",
              {{"small-task",
                {{"temperature", 0},
@@ -219,6 +227,25 @@ ConsumerConfig ConsumerConfig::parse(const json &input) {
                 std::string("consumer.") + key +
                 " must be a supported IP or private Wyoming hostname");
     }
+    if (!result["image_timeout_seconds"].is_number_integer() ||
+        result["image_timeout_seconds"].get<int>() < 1 ||
+        result["image_timeout_seconds"].get<int>() > 1800)
+        throw std::invalid_argument(
+            "image_timeout_seconds must be 1 through 1800");
+    if (!result["image_size"].is_string() ||
+        (result["image_size"] != "256x256" &&
+         result["image_size"] != "512x512"))
+        throw std::invalid_argument("image_size must be 256x256 or 512x512");
+    if (!result["image_max_steps"].is_number_integer() ||
+        result["image_max_steps"].get<int>() < 1 ||
+        result["image_max_steps"].get<int>() > 8)
+        throw std::invalid_argument("image_max_steps must be 1 through 8");
+    if (!result["image_min_available_gib"].is_number() ||
+        !std::isfinite(result["image_min_available_gib"].get<double>()) ||
+        result["image_min_available_gib"].get<double>() < 0 ||
+        result["image_min_available_gib"].get<double>() > 64)
+        throw std::invalid_argument(
+            "image_min_available_gib must be 0 through 64");
     if (!valid_id(result["tts_voice"]))
         throw std::invalid_argument("Invalid consumer voice ID");
     for (const auto &key : {"public_url", "chat_url", "manager_url", "console_url"}) {
@@ -233,11 +260,24 @@ ConsumerConfig ConsumerConfig::parse(const json &input) {
             throw std::invalid_argument(std::string("consumer.") + key +
                                         " must be a credential-free HTTP URL");
     }
+    if (!result["documents"].is_object() || result["documents"].size() > 16)
+        throw std::invalid_argument(
+            "documents must be a bounded named text map");
+    size_t document_bytes = 0;
+    for (const auto &[name, text] : result["documents"].items()) {
+        if (!valid_id(name) || !text.is_string() ||
+            text.get_ref<const std::string &>().size() > 16384)
+            throw std::invalid_argument("Invalid consumer document");
+        document_bytes += text.get_ref<const std::string &>().size();
+    }
+    if (document_bytes > 65536)
+        throw std::invalid_argument("Consumer documents exceed 64 KiB");
     std::set<std::string> critical;
     if (!result["critical_models"].is_array())
         throw std::invalid_argument("critical_models must be a list");
     for (const auto &role : result["critical_models"]) {
         if (!role.is_string() || !purposes.count(role.get<std::string>()) ||
+            role == "image-generation" ||
             !critical.insert(role.get<std::string>()).second)
             throw std::invalid_argument(
                 "critical_models must contain unique supported roles");
@@ -279,6 +319,7 @@ struct ConsumerService::Impl {
     std::thread http_thread, warmup_thread;
     std::atomic<bool> stopping{false};
     std::atomic<int> inflight{0};
+    std::atomic<int> images_inflight{0};
     std::atomic<uint64_t> sequence{0}, requests{0}, failures{0};
     std::mutex wait_mutex;
     std::condition_variable wake;
@@ -420,6 +461,61 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
         reject(res, 400, "Query parameters and encoded bodies are unsupported");
         return;
     }
+    if (ep == "/mcp" || ep == "/mcp/images") {
+        if (req.method != "POST") {
+            res.set_header("Allow", "POST");
+            reject(res, 405, "Use stateless MCP POST");
+            return;
+        }
+        if (req.body.size() > 65536) {
+            reject(res, 413, "MCP request too large");
+            return;
+        }
+        try {
+            std::function<json(const json &)> image;
+            if (ep == "/mcp/images")
+                image = [&](const json &args) {
+                    auto nested = req;
+                    nested.path = "/v1/images/generations";
+                    nested.target = nested.path;
+                    json body = args;
+                    body["model"] = "image-generation";
+                    nested.body = body.dump();
+                    nested.headers.erase("Content-Type");
+                    nested.set_header("Content-Type", "application/json");
+                    httplib::Response output;
+                    handle(nested, output);
+                    if (output.status >= 400)
+                        throw std::runtime_error("Image request failed");
+                    return json::parse(output.body);
+                };
+            auto response = consumer_mcp(
+                parse_unique(req.body), s.config.value["documents"],
+                [&](const std::string &path) {
+                    auto nested = req;
+                    nested.method = "GET";
+                    nested.path = path;
+                    nested.target = path;
+                    nested.body.clear();
+                    httplib::Response output;
+                    handle(nested, output);
+                    if (output.status >= 400 && output.status != 503)
+                        throw std::runtime_error("Consumer read failed");
+                    return json::parse(output.body);
+                },
+                image);
+            if (response)
+                reply(res, 200, *response);
+            else
+                res.status = 202;
+        } catch (...) {
+            reply(res, 200,
+                  {{"jsonrpc", "2.0"},
+                   {"id", nullptr},
+                   {"error", {{"code", -32700}, {"message", "Invalid JSON"}}}});
+        }
+        return;
+    }
     if (req.method == "GET") {
         if (ep == "audio/voices") {
             try {
@@ -524,7 +620,8 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                     "<a href='/v1/service'>Models and "
                     "configuration</a> &middot; <a href='/openapi.json'>API "
                     "contract</a> "
-                    "&middot; <a href='/ready'>Critical readiness</a></p></html>",
+                    "&middot; <a href='/ready'>Critical "
+                    "readiness</a></p></html>",
                 "text/html");
             return;
         }
@@ -544,7 +641,8 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
     const std::set<std::string> llm = {"chat/completions", "completions", "responses",
                                        "/api/chat", "/api/show"};
     if (req.method != "POST" ||
-        (!llm.count(ep) && ep != "audio/speech" && ep != "audio/transcriptions")) {
+        (!llm.count(ep) && ep != "audio/speech" &&
+         ep != "audio/transcriptions" && ep != "images/generations")) {
         reject(res, 403, "Consumer endpoint unavailable");
         return;
     }
@@ -585,8 +683,48 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                 return;
             }
             if ((ep == "audio/speech" && role != "speech-tts") ||
-                (llm.count(ep) && role.rfind("speech-", 0) == 0))
+                (llm.count(ep) && (role.rfind("speech-", 0) == 0 ||
+                                   role == "image-generation")) ||
+                (ep == "images/generations" && role != "image-generation") ||
+                (ep != "images/generations" && role == "image-generation"))
                 throw std::invalid_argument("Model does not support endpoint");
+            if (ep == "images/generations") {
+                static const std::set<std::string> fields = {
+                    "model",           "prompt", "size", "n",
+                    "response_format", "steps",  "seed"};
+                for (const auto &[key, value] : body.items())
+                    if (!fields.count(key))
+                        throw std::invalid_argument("Unsupported image option");
+                if (!body.contains("prompt") || !body["prompt"].is_string() ||
+                    body["prompt"].get_ref<const std::string &>().empty() ||
+                    body["prompt"].get_ref<const std::string &>().size() >
+                        2000 ||
+                    body["prompt"].get_ref<const std::string &>().find(
+                        "sd_cpp_extra_args") != std::string::npos)
+                    throw std::invalid_argument(
+                        "Bounded plain image prompt required");
+                if (body.value("n", json(1)) != 1 ||
+                    body.value("response_format", json("b64_json")) !=
+                        "b64_json" ||
+                    body.value("size", s.config.value["image_size"]) !=
+                        s.config.value["image_size"])
+                    throw std::invalid_argument(
+                        "One fixed-size base64 image required");
+                const auto steps = body.value("steps", json(4));
+                if (!steps.is_number_integer() || steps.get<int>() < 1 ||
+                    steps.get<int>() >
+                        s.config.value["image_max_steps"].get<int>())
+                    throw std::invalid_argument("Image step limit exceeded");
+                if (body.contains("seed") &&
+                    (!body["seed"].is_number_integer() ||
+                     body["seed"].get<int64_t>() < -1 ||
+                     body["seed"].get<int64_t>() > INT32_MAX))
+                    throw std::invalid_argument("Invalid seed");
+                body["n"] = 1;
+                body["response_format"] = "b64_json";
+                body["size"] = s.config.value["image_size"];
+                body["steps"] = steps;
+            }
             if (s.config.value["presets"].contains(role) && ep != "/api/show") {
                 auto *target = &body;
                 if (ep == "/api/chat") {
@@ -610,6 +748,33 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
         reject(res, 400, "Invalid or ambiguous consumer request");
         return;
     }
+    std::shared_ptr<void> image_admission;
+    if (ep == "images/generations") {
+        if (s.manager.available_memory_gib) {
+            const auto available = s.manager.available_memory_gib();
+            if (available >= 0 &&
+                available <
+                    s.config.value["image_min_available_gib"].get<double>()) {
+                reject(res, 503,
+                       "Insufficient host memory headroom for an image job");
+                return;
+            }
+        }
+        if (s.images_inflight.fetch_add(1) != 0) {
+            --s.images_inflight;
+            reject(res, 429, "One image job at a time");
+            return;
+        }
+        image_admission = std::shared_ptr<void>(nullptr, [&s](void *) {
+            try {
+                if (s.manager.release_image)
+                    s.manager.release_image("image-generation");
+            } catch (...) {
+                std::cerr << "Image runtime release failed\n";
+            }
+            --s.images_inflight;
+        });
+    }
     if (s.inflight.fetch_add(1) >= s.config.value["max_inflight"].get<int>()) {
         --s.inflight;
         reject(res, 429, "Inference queue full");
@@ -620,12 +785,24 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
     auto admission = std::shared_ptr<void>(nullptr, [&s](void *) { --s.inflight; });
     ++s.requests;
     const auto started = std::chrono::steady_clock::now();
+    if (ep == "images/generations") {
+        auto closed = req.is_connection_closed;
+        auto deadline = std::chrono::steady_clock::now() +
+                        std::chrono::seconds(
+                            s.config.value["image_timeout_seconds"].get<int>());
+        mapped.is_connection_closed = [closed, deadline] {
+            return (closed && closed()) ||
+                   std::chrono::steady_clock::now() >= deadline;
+        };
+    }
     mapped.path = ep.rfind("/api/", 0) == 0 ? ep : "/api/v1/" + ep;
     try {
         s.manager.invoke(mapped.path, mapped, res);
     } catch (...) {
         reject(res, 502, "Backend unavailable; start a fresh request");
     }
+    if (ep == "images/generations" && res.body.size() > 8 * 1024 * 1024)
+        reject(res, 502, "Image response exceeds service limit");
     if (res.status < 0)
         res.status = 200;
     if (res.status >= 400)

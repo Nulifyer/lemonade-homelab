@@ -83,9 +83,20 @@ def main():
                     assert request(manager_port, prefix + "service")["configuration"][
                         "enabled"
                     ]
-                    assert len(request(consumer_port, prefix + "models")["data"]) == 5
+                    assert len(request(consumer_port, prefix + "models")["data"]) == 6
+                init = request(consumer_port, "/mcp", {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+                assert init["result"]["serverInfo"]["name"] == "lemonade-consumer"
+                tools = request(consumer_port, "/mcp", {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})["result"]["tools"]
+                assert {t["name"] for t in tools} == {"model_services", "critical_readiness", "speech_voices"}
+                assert all(t["annotations"]["readOnlyHint"] for t in tools)
+                state = request(consumer_port, "/mcp", {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "critical_readiness", "arguments": {}}})
+                assert json.loads(state["result"]["content"][0]["text"])["ready"]
+                denied = request(consumer_port, "/mcp", {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "load_model", "arguments": {"model": "small-task"}}})
+                assert denied["error"]["code"] == -32602
+                malformed = request(consumer_port, "/mcp", {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "model_services", "arguments": {"path": "/load"}}})
+                assert malformed["error"]["code"] == -32602
                 assert len(request(consumer_port, "/openapi.json")["paths"]) > 10
-                assert len(request(consumer_port, "/api/tags")["models"]) == 5
+                assert len(request(consumer_port, "/api/tags")["models"]) == 6
                 # Saved configuration changes do not silently alter bound listeners.
                 request(
                     manager_port,
