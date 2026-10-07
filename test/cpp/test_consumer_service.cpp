@@ -134,7 +134,8 @@ int main() {
     std::string selected_voice;
     ConsumerService::Manager manager;
     manager.metadata = [](const std::string &role) {
-        return json{{"id", "target-" + role},
+        return json{{"id", "user.target-" + role},
+                    {"runtime_name", "target-" + role},
                     {"labels", {"tool_calling"}},
                     {"context_length", 8192}};
     };

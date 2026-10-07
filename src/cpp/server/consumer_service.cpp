@@ -302,7 +302,8 @@ json ConsumerService::readiness() const {
     try {
         const auto models = impl_->manager.health();
         for (const auto &role : impl_->config.value["critical_models"]) {
-            const auto name = impl_->manager.metadata(role.get<std::string>()).at("id");
+            const auto metadata = impl_->manager.metadata(role.get<std::string>());
+            const auto name = metadata.value("runtime_name", metadata.at("id"));
             bool found = false;
             for (const auto &model : models)
                 if (model.value("model_name", json()) == name)

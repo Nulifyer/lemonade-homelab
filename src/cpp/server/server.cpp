@@ -689,7 +689,9 @@ Server::Server(std::shared_ptr<RuntimeConfig> config,
         manager.health = [this] { return router_->get_all_loaded_models(); };
         manager.metadata = [this](const std::string& role) {
             auto name = resolve_alias_target(role);
-            return model_info_to_json(name, model_manager_->get_model_info(name));
+            auto metadata = model_info_to_json(name, model_manager_->get_model_info(name));
+            metadata["runtime_name"] = model_manager_->resolve_model_name(name);
+            return metadata;
         };
         manager.ensure_critical = [this](const std::string& role, std::atomic<bool>& cancel) {
             const auto name = model_manager_->resolve_model_name(resolve_alias_target(role));
