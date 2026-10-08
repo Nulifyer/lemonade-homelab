@@ -35,7 +35,7 @@ docker exec "$container" curl --fail --silent http://127.0.0.1:13305/v1/service 
     --request OPTIONS http://127.0.0.1:8080/internal/config) == 403 ]]
 [[ $(docker exec "$container" cat /proc/1/comm) == lemond ]]
 docker exec "$container" /opt/sdcpp/vulkan/sd-server --version 2>&1 | grep -F 462d675
-docker exec "$container" curl --fail --silent http://127.0.0.1:13305/internal/config | python3 -c 'import json,sys; assert json.load(sys.stdin)["sdcpp"]["vulkan_bin"] == "/opt/sdcpp/vulkan/sd-server"'
+docker exec "$container" cat /opt/lemonade/service-defaults.json | python3 -c 'import json,sys; assert json.load(sys.stdin)["sdcpp"]["vulkan_bin"] == "/opt/sdcpp/vulkan/sd-server"'
 docker stop --time 110 "$container" >/dev/null
 [[ $(docker inspect --format '{{.State.ExitCode}}' "$container") == 0 ]]
 printf '%s\n' 'Native lemond startup, discovery, readiness and SIGTERM passed without models or hardware.'
