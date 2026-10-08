@@ -531,14 +531,32 @@ int main() {
           "Streaming admission leaked");
 #ifndef _WIN32
     const int http_port = free_port(), voice_port = free_port();
-    ConsumerService network(
-        lemon::ConsumerConfig::parse({{"enabled", true},
-                                      {"host", "127.0.0.1"},
-                                      {"port", http_port},
-                                      {"wyoming_host", "127.0.0.1"},
-                                      {"wyoming_port", voice_port},
-                                      {"critical_models", json::array()}}),
-        manager);
+    std::atomic<bool> image_running{false}, image_aborted{false};
+    std::atomic<int> cancelled_image_releases{0};
+    auto network_manager = manager;
+    network_manager.release_image = [&](const std::string &) { ++cancelled_image_releases; };
+    network_manager.invoke = [&, invoke = manager.invoke](const auto &path, const auto &req,
+                                                          auto &res) {
+        if (path == "/api/v1/images/generations") {
+            image_running = true;
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+            while (std::chrono::steady_clock::now() < deadline &&
+                   !(req.is_connection_closed && req.is_connection_closed()))
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            image_aborted = req.is_connection_closed && req.is_connection_closed();
+            res.status = 499;
+            res.set_content("{}", "application/json");
+            return;
+        }
+        invoke(path, req, res);
+    };
+    ConsumerService network(lemon::ConsumerConfig::parse({{"enabled", true},
+                                                          {"host", "127.0.0.1"},
+                                                          {"port", http_port},
+                                                          {"wyoming_host", "127.0.0.1"},
+                                                          {"wyoming_port", voice_port},
+                                                          {"critical_models", json::array()}}),
+                            network_manager);
     network.start();
     httplib::Client http("127.0.0.1", http_port);
     http.set_connection_timeout(2);
@@ -549,6 +567,59 @@ int main() {
     auto denied_options = http.Options("/internal/config");
     check(denied_options && denied_options->status == 403,
           "Network OPTIONS exposed administration");
+    const auto initialize_body =
+        json{{"jsonrpc", "2.0"}, {"id", 1}, {"method", "initialize"}}.dump();
+    auto init_a = http.Post("/mcp/images", initialize_body, "application/json");
+    auto init_b = http.Post("/mcp/images", initialize_body, "application/json");
+    check(init_a && init_b && init_a->status == 200 && init_b->status == 200,
+          "Image MCP initialization failed");
+    const auto session_a = init_a->get_header_value("Mcp-Session-Id");
+    const auto session_b = init_b->get_header_value("Mcp-Session-Id");
+    check(!session_a.empty() && session_a != session_b, "MCP clients share a session");
+    const auto call_body =
+        json{{"jsonrpc", "2.0"},
+             {"id", 2},
+             {"method", "tools/call"},
+             {"params", {{"name", "generate_image"}, {"arguments", {{"prompt", "A cube"}}}}}}
+            .dump();
+    auto missing_session = http.Post("/mcp/images", call_body, "application/json");
+    check(missing_session && missing_session->status == 400, "Sessionless image MCP call accepted");
+    httplib::Result cancelled_call;
+    std::thread image_rpc([&] {
+        httplib::Client client("127.0.0.1", http_port);
+        cancelled_call = client.Post("/mcp/images", {{"Mcp-Session-Id", session_a}}, call_body,
+                                     "application/json");
+    });
+    for (int i = 0; i < 100 && !image_running; ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    const auto cancellation = json{
+        {"jsonrpc", "2.0"},
+        {"method", "notifications/cancelled"},
+        {"params",
+         {{"requestId", 2}}}}.dump();
+    auto foreign_cancel =
+        http.Post("/mcp/images", {{"Mcp-Session-Id", session_b}}, cancellation, "application/json");
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    const bool isolated = image_running && !image_aborted;
+    auto duplicate_rpc =
+        http.Post("/mcp/images", {{"Mcp-Session-Id", session_a}}, call_body, "application/json");
+    auto cancel_rpc =
+        http.Post("/mcp/images", {{"Mcp-Session-Id", session_a}}, cancellation, "application/json");
+    image_rpc.join();
+    check(foreign_cancel && foreign_cancel->status == 202 && isolated,
+          "Foreign MCP cancellation reached another client's job");
+    check(duplicate_rpc && duplicate_rpc->status == 409, "Duplicate active MCP ID accepted");
+    check(cancel_rpc && cancel_rpc->status == 202 && image_aborted && cancelled_call &&
+              cancelled_call->status == 202 && cancelled_image_releases == 1,
+          "MCP cancellation did not abort and release the image runtime");
+    auto terminated = http.Delete("/mcp/images", httplib::Headers{{"Mcp-Session-Id", session_a}});
+    auto expired =
+        http.Post("/mcp/images", {{"Mcp-Session-Id", session_a}}, cancellation, "application/json");
+    check(terminated && terminated->status == 204 && expired && expired->status == 404,
+          "MCP session termination failed");
+    auto denied_origin = http.Post("/mcp/images", {{"Origin", "https://foreign.invalid"}},
+                                   initialize_body, "application/json");
+    check(denied_origin && denied_origin->status == 403, "Foreign browser MCP origin accepted");
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in a{};
     a.sin_family = AF_INET;

@@ -165,7 +165,15 @@ to 12 GiB of host available RAM before admission. This is a snapshot guard,
 not a reservation. Unknown platform counters do not invent a budget.
 
 The image-only MCP endpoint `/mcp/images` supplies `generate_image`, returning
-a PNG content block. It uses the same admission and API policy. The native
+a PNG content block. Its initialize response assigns an opaque `Mcp-Session-Id`.
+Clients retain that header for subsequent requests. `notifications/cancelled`
+sets the matching request cancellation flag in that session; equal IDs from
+other sessions remain isolated. DELETE terminates the session and cancels its
+active jobs. There are at most 64 sessions, with idle expiry after 15 minutes.
+An expired session returns 404 so the client can initialize again. No replay or
+server-to-client SSE stream is offered. The read-only `/mcp` stays stateless.
+
+The image endpoint uses the same admission and API policy. The native
 Router unloads the image child after every consumer job, including a disconnect,
 while text and speech runtimes remain loaded. Images are never critical startup
 models. Manager requests retain normal explicit model-management behavior.

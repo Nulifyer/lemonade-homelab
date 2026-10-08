@@ -8,6 +8,7 @@
 #include <iostream>
 #include <map>
 #include <mutex>
+#include <random>
 #include <set>
 #include <stdexcept>
 #include <thread>
@@ -320,6 +321,12 @@ struct ConsumerService::Impl {
     std::atomic<bool> stopping{false};
     std::atomic<int> inflight{0};
     std::atomic<int> images_inflight{0};
+    struct ImageSession {
+        std::chrono::steady_clock::time_point touched;
+        std::map<std::string, std::shared_ptr<std::atomic<bool>>> calls;
+    };
+    std::mutex image_session_mutex;
+    std::map<std::string, ImageSession> image_sessions;
     std::atomic<uint64_t> sequence{0}, requests{0}, failures{0};
     std::mutex wait_mutex;
     std::condition_variable wake;
@@ -383,14 +390,13 @@ void ConsumerService::start() {
     impl_->http.Get("/.*", [this](const auto &req, auto &res) { handle(req, res); });
     impl_->http.Post("/.*", [this](const auto &req, auto &res) { handle(req, res); });
     impl_->http.Options("/.*", [this](const auto &req, auto &res) { handle(req, res); });
-    for (const auto &method : {"PUT", "DELETE", "PATCH"}) {
+    impl_->http.Delete("/.*", [this](const auto &req, auto &res) { handle(req, res); });
+    for (const auto &method : {"PUT", "PATCH"}) {
         auto denied = [](const auto &, auto &res) {
             reject(res, 403, "Consumer administration is unavailable");
         };
         if (std::string(method) == "PUT")
             impl_->http.Put("/.*", denied);
-        if (std::string(method) == "DELETE")
-            impl_->http.Delete("/.*", denied);
         if (std::string(method) == "PATCH")
             impl_->http.Patch("/.*", denied);
     }
@@ -431,6 +437,12 @@ void ConsumerService::start() {
 }
 void ConsumerService::stop() {
     impl_->stopping = true;
+    {
+        std::lock_guard lock(impl_->image_session_mutex);
+        for (auto &[id, session] : impl_->image_sessions)
+            for (auto &[request, cancelled] : session.calls)
+                *cancelled = true;
+    }
     impl_->wake.notify_all();
     impl_->stop_voice();
     impl_->http.stop();
@@ -508,9 +520,28 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
         return;
     }
     if (ep == "/mcp" || ep == "/mcp/images") {
+        if (req.has_header("Origin") &&
+            req.get_header_value("Origin") != s.config.value["public_url"] &&
+            req.get_header_value("Origin") != s.config.value["chat_url"]) {
+            reject(res, 403, "MCP origin unavailable");
+            return;
+        }
+        if (ep == "/mcp/images" && req.method == "DELETE") {
+            std::lock_guard lock(s.image_session_mutex);
+            auto session = s.image_sessions.find(req.get_header_value("Mcp-Session-Id"));
+            if (session == s.image_sessions.end()) {
+                reject(res, 404, "MCP session unavailable; initialize again");
+                return;
+            }
+            for (auto &[key, cancelled] : session->second.calls)
+                *cancelled = true;
+            s.image_sessions.erase(session);
+            res.status = 204;
+            return;
+        }
         if (req.method != "POST") {
             res.set_header("Allow", "POST");
-            reject(res, 405, "Use stateless MCP POST");
+            reject(res, 405, "MCP server does not offer an SSE stream");
             return;
         }
         if (req.body.size() > 65536) {
@@ -518,10 +549,64 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
             return;
         }
         try {
+            const auto message = parse_unique(req.body);
+            const auto method = message.value("method", json());
+            std::string session_id = req.get_header_value("Mcp-Session-Id");
+            std::shared_ptr<std::atomic<bool>> cancelled;
+            std::shared_ptr<void> pending;
+            const bool initialize = method == "initialize";
+            if (ep == "/mcp/images" && !initialize) {
+                if (session_id.empty()) {
+                    reject(res, 400, "Initialize an image MCP session first");
+                    return;
+                }
+                std::lock_guard lock(s.image_session_mutex);
+                auto session = s.image_sessions.find(session_id);
+                if (session != s.image_sessions.end() && session->second.calls.empty() &&
+                    std::chrono::steady_clock::now() - session->second.touched >
+                        std::chrono::minutes(15)) {
+                    s.image_sessions.erase(session);
+                    session = s.image_sessions.end();
+                }
+                if (session == s.image_sessions.end()) {
+                    reject(res, 404, "MCP session unavailable; initialize again");
+                    return;
+                }
+                session->second.touched = std::chrono::steady_clock::now();
+                if (method == "notifications/cancelled" && !message.contains("id")) {
+                    const auto key = message.at("params").at("requestId").dump();
+                    auto call = session->second.calls.find(key);
+                    if (call != session->second.calls.end())
+                        *call->second = true;
+                    res.status = 202;
+                    return;
+                }
+                if (method == "tools/call" && message.contains("id") &&
+                    (message["id"].is_string() || message["id"].is_number_integer())) {
+                    const auto key = message["id"].dump();
+                    cancelled = std::make_shared<std::atomic<bool>>(false);
+                    if (!session->second.calls.emplace(key, cancelled).second) {
+                        reject(res, 409, "MCP request ID is already active");
+                        return;
+                    }
+                    pending = std::shared_ptr<void>(nullptr, [&s, session_id, key](void *) {
+                        std::lock_guard lock(s.image_session_mutex);
+                        auto session = s.image_sessions.find(session_id);
+                        if (session != s.image_sessions.end())
+                            session->second.calls.erase(key);
+                    });
+                }
+            }
             std::function<json(const json &)> image;
             if (ep == "/mcp/images")
                 image = [&](const json &args) {
+                    if (cancelled && cancelled->load())
+                        throw std::runtime_error("Image request cancelled");
                     auto nested = req;
+                    const auto closed = req.is_connection_closed;
+                    nested.is_connection_closed = [closed, cancelled] {
+                        return (closed && closed()) || (cancelled && cancelled->load());
+                    };
                     nested.path = "/v1/images/generations";
                     nested.target = nested.path;
                     json body = args;
@@ -536,7 +621,7 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                     return json::parse(output.body);
                 };
             auto response = consumer_mcp(
-                parse_unique(req.body), s.config.value["documents"],
+                message, s.config.value["documents"],
                 [&](const std::string &path) {
                     auto nested = req;
                     nested.method = "GET";
@@ -550,6 +635,34 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                     return json::parse(output.body);
                 },
                 image);
+            if (ep == "/mcp/images" && initialize && response && response->contains("result")) {
+                std::lock_guard lock(s.image_session_mutex);
+                const auto now = std::chrono::steady_clock::now();
+                for (auto it = s.image_sessions.begin(); it != s.image_sessions.end();) {
+                    if (it->second.calls.empty() &&
+                        now - it->second.touched > std::chrono::minutes(15))
+                        it = s.image_sessions.erase(it);
+                    else
+                        ++it;
+                }
+                if (s.image_sessions.size() >= 64) {
+                    reject(res, 503, "Image MCP session capacity reached");
+                    return;
+                }
+                // Keep equal JSON-RPC IDs from different clients isolated.
+                std::random_device random;
+                do {
+                    session_id.clear();
+                    for (int i = 0; i < 32; ++i)
+                        session_id += "0123456789abcdef"[random() & 15];
+                } while (s.image_sessions.count(session_id));
+                s.image_sessions.emplace(session_id, Impl::ImageSession{now, {}});
+                res.set_header("Mcp-Session-Id", session_id);
+            }
+            if (cancelled && cancelled->load()) {
+                res.status = 202;
+                return;
+            }
             if (response)
                 reply(res, 200, *response);
             else
