@@ -60,6 +60,17 @@ int main() {
                   explicit_params["sample_params"]["scheduler"] == "discrete" &&
                   explicit_params["seed"] == 42,
               "Client image sampling values lost precedence");
+        const auto high_params = SDServer::build_generation_params(
+            {{"steps", 16}, {"cfg_scale", 7.0}, {"sample_method", "heun"},
+             {"scheduler", "karras"}, {"seed", 4294967296LL}, {"clip_skip", 2},
+             {"flow_shift", 3.0}}, options);
+        check(high_params["sample_params"]["sample_steps"] == 16 &&
+                  high_params["sample_params"]["guidance"]["txt_cfg"] == 7.0 &&
+                  high_params["sample_params"]["sample_method"] == "heun" &&
+                  high_params["sample_params"]["scheduler"] == "karras" &&
+                  high_params["sample_params"]["flow_shift"] == 3.0 &&
+                  high_params["seed"] == 4294967296LL && high_params["clip_skip"] == 2,
+              "Explicit client controls were truncated or ignored by the runtime adapter");
         fs::remove_all(root);
         std::cout << "Managed diffusion checkpoint tests passed\n";
     } catch (...) {

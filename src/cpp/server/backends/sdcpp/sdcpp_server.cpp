@@ -437,6 +437,7 @@ json SDServer::build_generation_params(const json& request, const RecipeOptions&
     // RecipeOptions::merge_precedence_layers / inherit); a value absent from
     // every layer is omitted, letting sd-server apply its own defaults.
     json extra_args;
+    if (request.contains("clip_skip")) extra_args["clip_skip"] = request["clip_skip"];
     if (request.contains("negative_prompt") && request["negative_prompt"].is_string()) {
         extra_args["negative_prompt"] = request["negative_prompt"];
     }
@@ -501,7 +502,8 @@ json SDServer::build_generation_params(const json& request, const RecipeOptions&
     // seed stays top-level in from_json_str. Negative seeds mean "random" for
     // Lemonade, so generate a concrete seed instead of letting sd-server fall
     // back to its deterministic default.
-    const int seed = resolve_int("seed", -1);
+    const int64_t seed = request.contains("seed") && request["seed"].is_number_integer()
+        ? request["seed"].get<int64_t>() : -1;
     extra_args["seed"] = seed >= 0 ? seed : generate_random_seed();
 
     return extra_args;

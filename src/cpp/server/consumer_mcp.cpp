@@ -1,4 +1,8 @@
 #include "lemon/consumer_mcp.h"
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <limits>
 #include <map>
 #include <regex>
 #include <stdexcept>
@@ -7,13 +11,59 @@ namespace lemon {
 using json = nlohmann::json;
 bool valid_consumer_image_size(const json &size) {
     if (!size.is_string()) return false;
-    static const std::regex pattern("^([1-9][0-9]{2,3})x([1-9][0-9]{2,3})$");
+    static const std::regex pattern("^([1-9][0-9]{0,9})x([1-9][0-9]{0,9})$");
     std::smatch match;
     const auto &text = size.get_ref<const std::string &>();
     if (!std::regex_match(text, match, pattern)) return false;
-    const int width = std::stoi(match[1]), height = std::stoi(match[2]);
-    return width >= 256 && width <= 1024 && height >= 256 && height <= 1024 &&
-           width % 64 == 0 && height % 64 == 0;
+    const auto width = std::stoll(match[1]), height = std::stoll(match[2]);
+    return width <= INT32_MAX && height <= INT32_MAX;
+}
+json consumer_image_options_schema() {
+    return {{"prompt", {{"type", "string"}, {"minLength", 1}}},
+            {"negative_prompt", {{"type", "string"}}},
+            {"size", {{"type", "string"}, {"pattern", "^[1-9][0-9]{0,9}x[1-9][0-9]{0,9}$"},
+                      {"description", "Output WIDTHxHEIGHT, positive 32-bit dimensions. Model-specific alignment and available hardware still apply."}}},
+            {"steps", {{"type", "integer"}, {"minimum", 1}, {"maximum", INT32_MAX}}},
+            {"n", {{"type", "integer"}, {"minimum", 1}, {"maximum", INT32_MAX}}},
+            {"seed", {{"type", "integer"}, {"minimum", -1}, {"maximum", INT64_MAX}}},
+            {"cfg_scale", {{"type", "number"}, {"minimum", 0}}},
+            {"flow_shift", {{"type", "number"}}},
+            {"clip_skip", {{"type", "integer"}, {"minimum", 0}, {"maximum", INT32_MAX}}},
+            {"sample_method", {{"type", "string"}, {"enum", {"euler", "euler_a", "heun", "dpm2", "dpm++2s_a", "dpm++2m", "dpm++2mv2", "ipndm", "ipndm_v", "lcm", "ddim_trailing", "tcd"}}}},
+            {"scheduler", {{"type", "string"}, {"enum", {"discrete", "karras", "exponential", "ays", "gits", "smoothstep", "sgm_uniform", "simple", "kl_optimal", "lcm", "beta"}}}}};
+}
+void validate_consumer_image_options(const json &options) {
+    if (!options.is_object()) throw std::invalid_argument("Image options must be an object");
+    const auto schema = consumer_image_options_schema();
+    for (const auto &[key, value] : options.items()) {
+        if (!schema.contains(key)) throw std::invalid_argument("Unsupported image option: " + key);
+        const auto &field = schema.at(key);
+        const auto type = field.at("type");
+        if (type == "string") {
+            if (!value.is_string()) throw std::invalid_argument(key + " must be a string");
+            const auto &text = value.get_ref<const std::string &>();
+            if (key == "prompt" && text.empty()) throw std::invalid_argument("Image prompt required");
+            if ((key == "prompt" || key == "negative_prompt") && text.find("<sd_cpp_extra_args>") != std::string::npos)
+                throw std::invalid_argument("Runtime control markup is not an image prompt");
+            if (key == "size" && !valid_consumer_image_size(value))
+                throw std::invalid_argument("Image size must be positive WIDTHxHEIGHT within 32-bit dimensions");
+            if (field.contains("enum") && std::find(field["enum"].begin(), field["enum"].end(), value) == field["enum"].end())
+                throw std::invalid_argument("Unsupported image " + key);
+        } else if (type == "integer") {
+            if (!value.is_number_integer() ||
+                (value.is_number_unsigned() && value.get<uint64_t>() > static_cast<uint64_t>(INT64_MAX)))
+                throw std::invalid_argument(key + " must be an integer within the runtime range");
+            const auto number = value.get<int64_t>();
+            if (number < field.at("minimum").get<int64_t>() || number > field.at("maximum").get<int64_t>())
+                throw std::invalid_argument("Invalid image " + key);
+        } else {
+            if (!value.is_number()) throw std::invalid_argument(key + " must be a number");
+            const auto number = value.get<double>();
+            if (!std::isfinite(number) || std::abs(number) > std::numeric_limits<float>::max() ||
+                (field.contains("minimum") && number < field["minimum"].get<double>()))
+                throw std::invalid_argument("Invalid image " + key);
+        }
+    }
 }
 std::optional<json>
 consumer_mcp(const json &message, const json &documents,
@@ -42,7 +92,7 @@ consumer_mcp(const json &message, const json &documents,
              {"capabilities", {{"tools", json::object()}}},
              {"serverInfo", {{"name", "lemonade-consumer"}, {"version", "1"}}},
              {"instructions",
-              image ? "Generate one bounded on-demand image. No model "
+              image ? "Generate on-demand images with client-selected controls. No model "
                       "administration or downloads."
                     : "Read-only model service information and reviewed "
                       "documentation. No downloads, model lifecycle, shell, "
@@ -83,18 +133,11 @@ consumer_mcp(const json &message, const json &documents,
                   {"additionalProperties", false}});
         if (image) {
             tool("generate_image",
-                 "Generate one image using the locally selected model. "
-                 "Size defaults to the service canvas when omitted. "
+                 "Generate images using the locally selected model. "
+                 "Omitted controls use service/model defaults; explicit controls take precedence. "
                  "Describe the scene plainly; generation can take a minute.",
                  {{"type", "object"},
-                  {"properties",
-                   {{"prompt",
-                     {{"type", "string"},
-                      {"minLength", 1},
-                      {"maxLength", 2000}}},
-                    {"size", {{"type", "string"},
-                              {"description", "Output WIDTHxHEIGHT. Each dimension is 256 through 1024 in multiples of 64."},
-                              {"pattern", "^(256|320|384|448|512|576|640|704|768|832|896|960|1024)x(256|320|384|448|512|576|640|704|768|832|896|960|1024)$"}}}}},
+                  {"properties", consumer_image_options_schema()},
                   {"required", {"prompt"}},
                   {"additionalProperties", false}});
             tools.back()["annotations"]["readOnlyHint"] = false;
@@ -126,26 +169,21 @@ consumer_mcp(const json &message, const json &documents,
             throw std::invalid_argument("Invalid arguments");
         json value;
         if (image) {
-            if (name != "generate_image" || !args.contains("prompt") ||
-                !args["prompt"].is_string() || args.size() > 2 ||
-                (args.size() == 2 && !args.contains("size")) ||
-                (args.contains("size") && !valid_consumer_image_size(args["size"])))
-                return error(-32602, "Bounded image prompt required");
+            if (name != "generate_image" || !args.contains("prompt"))
+                return error(-32602, "Image prompt required");
+            try { validate_consumer_image_options(args); }
+            catch (const std::invalid_argument &e) { return error(-32602, e.what()); }
             auto generated = image(args);
-            if (!generated.contains("data") || generated["data"].size() != 1)
+            if (!generated.contains("data") || !generated["data"].is_array() || generated["data"].empty())
                 throw std::runtime_error("Image unavailable");
-            const auto data =
-                generated["data"][0].at("b64_json").get<std::string>();
-            if (data.empty() || data.size() > 8 * 1024 * 1024)
-                throw std::runtime_error("Image response exceeded limit");
-            return result({{"content", json::array({
-                                           {{"type", "text"},
-                                            {"text", "Image generated successfully. "
-                                                     "The image is attached to this "
-                                                     "tool result."}},
-                                           {{"type", "image"},
-                                            {"mimeType", "image/png"},
-                                            {"data", data}}})},
+            json content = json::array({{{"type", "text"},
+                {"text", "Image generated successfully. The images are attached to this tool result."}}});
+            for (const auto &item : generated["data"]) {
+                const auto data = item.at("b64_json").get<std::string>();
+                if (data.empty()) throw std::runtime_error("Empty image response");
+                content.push_back({{"type", "image"}, {"mimeType", "image/png"}, {"data", data}});
+            }
+            return result({{"content", content},
                            {"isError", false}});
         }
         if (name == "read_runbook" && args.size() == 1 &&

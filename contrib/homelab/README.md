@@ -127,6 +127,31 @@ come from Lemonade's model cache and cannot be replaced through custom runtime
 arguments. Chroma therefore uses `--t5xxl`, while existing Qwen pipelines retain
 `--llm`. Bundled SDXL checkpoints retain `-m`.
 
+## Image request controls
+
+Explicit client values take precedence over saved model defaults. Raw OpenAI
+requests, the SD-compatible adapter and the image MCP tool accept steps, CFG,
+size, seed, negative prompt, sampler, scheduler, flow shift and CLIP skip.
+OpenAI/MCP use `n` for image count; the SD adapter uses `batch_size` and returns
+all images. Image chat dispatch accepts these controls in `image_options`,
+with the chat message supplying the prompt. Legacy `image_size` remains supported;
+conflicting size values return an error.
+
+The service fallback is 512×512 and one image. Sampling fields stay absent when
+omitted, so the native diffusion adapter resolves the selected model's options.
+There is no default eight-step, CFG-4, 1024-pixel or one-image cap. The legacy
+`consumer.image_max_steps` defaults to zero, meaning no operator step cap. A
+positive value is an explicit operator policy, not a sampling default. Existing
+saved configuration takes precedence; replace an old value of eight with zero
+to remove that policy. Image jobs default to a 1,200-second timeout.
+
+Discovery reports available controls, effective model defaults and any operator
+step cap. OpenAPI and MCP use the same option schema and validation. Positive
+runtime integer ranges, finite numeric values and supported sampler names are
+validated. Model-specific dimension alignment and hardware capacity still apply.
+Runtime control markup is not accepted inside image prompts. Request-size,
+concurrency, memory admission and cancellation remain service policies.
+
 ## Build, tests and upstream updates
 
 The production base retains Ubuntu 26.04, glibc, XRT and Vulkan. Alpine uses musl

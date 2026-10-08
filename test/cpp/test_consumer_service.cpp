@@ -263,14 +263,35 @@ int main() {
     check(!sized_call({{"prompt", "A cube"}, {"size", "512x768"}}).contains("error") &&
               sized_args["size"] == "512x768",
           "MCP dropped explicit image dimensions");
-    for (const auto &extra : {json{{"size", "4096x4096"}}, json{{"size", "600x600"}},
+    for (const auto &extra : {json{{"size", "0x4096"}}, json{{"size", "600xbad"}},
                               json{{"size", 512}}, json{{"command", "stop"}},
                               json{{"size", "512x512"}, {"unknown", true}}}) {
         json args = {{"prompt", "A cube"}};
         args.update(extra);
         check(sized_call(args).contains("error"), "MCP accepted unbounded image arguments");
     }
+    const json mcp_controls = {{"prompt", "A cube"}, {"size", "1536x1024"},
+        {"steps", 16}, {"cfg_scale", 7.0}, {"sample_method", "heun"},
+        {"scheduler", "karras"}, {"clip_skip", 2}, {"seed", 4294967296LL}};
+    check(!sized_call(mcp_controls).contains("error") && sized_args == mcp_controls,
+          "Image MCP rejected or changed client controls");
+    auto batch_image = [](const json &) {
+        return json{{"data", json::array({{{"b64_json", "cG5n"}}, {{"b64_json", "cG5n"}}})}};
+    };
+    auto mcp_batch = *lemon::consumer_mcp({{"jsonrpc", "2.0"}, {"id", 1},
+        {"method", "tools/call"}, {"params", {{"name", "generate_image"},
+            {"arguments", {{"prompt", "Two variants"}, {"n", 2}}}}}}, documents, read, batch_image);
+    check(mcp_batch["result"]["content"].size() == 3,
+          "MCP omitted images from a batch result");
+    const auto expected_image_schema = lemon::consumer_image_options_schema();
+    for (const auto &[key, value] : expected_image_schema.items())
+        check(image_tools["result"]["tools"][0]["inputSchema"]["properties"][key] == value,
+              "Image MCP discovery differs from its option contract");
     const auto defaults = lemon::ConsumerConfig::defaults();
+    check(defaults["image_max_steps"] == 0, "Image defaults enforce a step cap");
+    check(lemon::ConsumerConfig::parse({{"image_max_steps", 100}}).value["image_max_steps"] == 100,
+          "Operator image cap remains limited to eight steps");
+
     check(defaults["critical_models"].size() == 3, "Wrong critical defaults");
     for (const json &input :
          {json{{"unknown", true}}, json{{"port", 0}}, json{{"port", 10300}},
@@ -449,7 +470,19 @@ int main() {
               json::parse(json::parse(sized_dispatch_response.body)["choices"][0]["message"]
                               ["tool_calls"][0]["function"]["arguments"].get<std::string>())["size"] == "768x512",
           "Image dispatch dropped client canvas size");
-    sized_dispatch["image_size"] = "4096x4096";
+    auto controlled_dispatch = dispatch;
+    controlled_dispatch["image_options"] = {{"size", "1536x1024"}, {"steps", 16},
+        {"cfg_scale", 7.0}, {"sample_method", "heun"}, {"scheduler", "karras"}};
+    httplib::Response controlled_response;
+    service.handle(request("/v1/chat/completions", controlled_dispatch), controlled_response);
+    const auto tool_arguments = json::parse(json::parse(controlled_response.body)["choices"][0]
+        ["message"]["tool_calls"][0]["function"]["arguments"].get<std::string>());
+    for (const auto &[key, value] : controlled_dispatch["image_options"].items())
+        check(tool_arguments[key] == value, "Image chat dispatch dropped explicit controls");
+    controlled_dispatch["image_size"] = "512x512";
+    check(call("/v1/chat/completions", controlled_dispatch) == 400,
+          "Image chat accepted conflicting canvas choices");
+    sized_dispatch["image_size"] = "0x4096";
     check(call("/v1/chat/completions", sized_dispatch) == 400,
           "Image dispatch accepted an unbounded canvas");
     disabled_dispatch["tool_choice"] = "none";
@@ -472,8 +505,8 @@ int main() {
           "Image dispatcher accepted ambiguous tools");
     auto long_dispatch = dispatch;
     long_dispatch["messages"].back()["content"] = std::string(2001, 'x');
-    check(call("/v1/chat/completions", long_dispatch) == 400,
-          "Image dispatcher accepted an oversized prompt");
+    check(call("/v1/chat/completions", long_dispatch) == 200,
+          "Image dispatcher rejected a prompt within the request-size limit");
     auto stream_dispatch = dispatch;
     stream_dispatch["stream"] = true;
     httplib::Response stream_response;
@@ -598,7 +631,7 @@ int main() {
         check(path == "/api/v1/images/generations", "Wrong image handler");
         auto body = json::parse(req.body);
         image_captured = body;
-        check(body["n"] == 1 && body["steps"] == 4 && body["size"] == "512x512",
+        check(body["n"] == 1 && (!body.contains("steps") || body["steps"] == 4) && body["size"] == "512x512",
               "Image defaults absent");
         std::unique_lock lock(image_mutex);
         image_entered = true;
@@ -637,8 +670,9 @@ int main() {
     check(first.status == 200 && image_releases == 1,
           "Image runtime was not released after the job");
     for (auto extra :
-         {json{{"n", 2}}, json{{"size", "4096x4096"}}, json{{"steps", 9}},
-          json{{"cfg_scale", 5}}, json{{"prompt", "x <sd_cpp_extra_args>y"}}}) {
+         {json{{"n", 0}}, json{{"size", "0x4096"}}, json{{"steps", 0}},
+          json{{"cfg_scale", -1}}, json{{"prompt", "x <sd_cpp_extra_args>y"}},
+          json{{"steps", 4294967296LL}}, json{{"seed", 18446744073709551615ULL}}}) {
         auto bad = image_request;
         auto body = json::parse(bad.body);
         body.update(extra);
@@ -660,7 +694,7 @@ int main() {
               image_captured["sample_method"] == "ipndm" && image_captured["scheduler"] == "discrete" &&
               image_releases == 2,
           "SD API compatibility did not preserve the image policy and response");
-    for (auto extra : {json{{"batch_size", 2}}, json{{"width", 4096}},
+    for (auto extra : {json{{"batch_size", 0}}, json{{"width", 0}},
                        json{{"scheduler", "arbitrary"}}, json{{"sampler_name", "arbitrary"}},
                        json{{"negative_prompt", "<sd_cpp_extra_args>{}"}}}) {
         auto bad = sd_request;
@@ -676,7 +710,7 @@ int main() {
     httplib::Response image_probe;
     images.handle(image_options, image_probe);
     check(image_probe.status == 204, "Image endpoint probe failed");
-    for (const auto &size : {"256x256", "512x512", "768x768", "1024x1024", "512x768"}) {
+    for (const auto &size : {"256x256", "512x512", "768x768", "1024x1024", "512x768", "600x600", "1536x1024", "2048x2048"}) {
         auto sized_manager = image_manager;
         sized_manager.invoke = [&](const std::string &, const auto &req, auto &res) {
             image_captured = json::parse(req.body);
@@ -699,54 +733,78 @@ int main() {
               "Service default overrode explicit client dimensions");
         auto mismatch = image_request;
         auto body = json::parse(mismatch.body);
-        body["size"] = "2048x2048";
+        body["size"] = "2147483648x512";
         mismatch.body = body.dump();
         httplib::Response rejected;
         sized.handle(mismatch, rejected);
         check(rejected.status == 400,
               "Caller bypassed the configured resolution bound");
     }
-    for (const auto &size : {"0x0", "600x600", "0256x512", "2048x2048", "8192x8192"})
+    for (const auto &size : {"0x0", "bad", "0256x512", "2147483648x512", "99999999999x512"})
         invalid([&] { lemon::ConsumerConfig::parse({{"image_size", size}}); });
-    auto model_default_manager = image_manager;
-    int model_steps = 5;
-    model_default_manager.metadata = [&](const std::string &) {
-        return json{{"recipe_options", {{"steps", model_steps}}},
-                    {"image_defaults", {{"steps", 3}}}};
+    auto override_manager = image_manager;
+    override_manager.metadata = [](const std::string &) {
+        return json{{"recipe_options", {{"steps", 16}}}};
     };
-    model_default_manager.invoke = [&](const std::string &, const auto &req, auto &res) {
+    override_manager.invoke = [&](const std::string &, const auto &req, auto &res) {
         image_captured = json::parse(req.body);
         res.status = 200;
-        res.set_content("{\"data\":[{\"b64_json\":\"cG5n\"}]}", "application/json");
+        json data = json::array();
+        for (int i = 0; i < image_captured.value("n", 1); ++i) data.push_back({{"b64_json", "cG5n"}});
+        res.set_content(json{{"data", data}}.dump(), "application/json");
     };
-    ConsumerService model_defaults(lemon::ConsumerConfig::parse(json::object()),
-                                   model_default_manager);
-    httplib::Response selected_default;
-    model_defaults.handle(image_request, selected_default);
-    check(selected_default.status == 200 && image_captured["steps"] == 5,
-          "Image API did not use the selected model's effective steps");
-    auto explicit_steps = image_request;
-    auto explicit_body = json::parse(explicit_steps.body);
-    explicit_body["steps"] = 4;
-    explicit_steps.body = explicit_body.dump();
-    httplib::Response selected_override;
-    model_defaults.handle(explicit_steps, selected_override);
-    check(selected_override.status == 200 && image_captured["steps"] == 4,
-          "Image API overwrote explicit caller steps");
-    model_steps = 9;
-    httplib::Response unbounded_default;
-    model_defaults.handle(image_request, unbounded_default);
-    check(unbounded_default.status == 400,
-          "Model defaults bypassed the consumer image step limit");
-    model_default_manager.metadata = [](const std::string &) {
-        return json{{"image_defaults", {{"steps", 3}}}};
-    };
-    ConsumerService image_defaults(lemon::ConsumerConfig::parse(json::object()),
-                                   model_default_manager);
-    httplib::Response selected_image_default;
-    image_defaults.handle(image_request, selected_image_default);
-    check(selected_image_default.status == 200 && image_captured["steps"] == 3,
-          "Image API ignored model image_defaults when recipe steps were absent");
+    ConsumerService overrides(lemon::ConsumerConfig::parse(json::object()), override_manager);
+    auto explicit_image = image_request;
+    const json controls = {{"size", "1536x1024"}, {"steps", 16}, {"cfg_scale", 7.0},
+        {"n", 2}, {"seed", 4294967296LL}, {"clip_skip", 2}, {"flow_shift", 3.0},
+        {"sample_method", "heun"}, {"scheduler", "karras"},
+        {"negative_prompt", std::string(3000, 'x')}};
+    auto override_body = json::parse(explicit_image.body);
+    override_body.update(controls);
+    explicit_image.body = override_body.dump();
+    httplib::Response override_response;
+    overrides.handle(explicit_image, override_response);
+    check(override_response.status == 200 && json::parse(override_response.body)["data"].size() == 2,
+          "Client image batch was rejected or reduced");
+    for (const auto &[key, value] : controls.items())
+        check(image_captured[key] == value, "Explicit image control was changed");
+    httplib::Response defaults_response;
+    overrides.handle(image_request, defaults_response);
+    check(defaults_response.status == 200 && !image_captured.contains("steps") &&
+              !image_captured.contains("cfg_scale") && !image_captured.contains("scheduler"),
+          "Consumer inserted preset sampling instead of letting the model resolve defaults");
+    ConsumerService capped(lemon::ConsumerConfig::parse({{"image_max_steps", 12}}), override_manager);
+    httplib::Response capped_response;
+    capped.handle(explicit_image, capped_response);
+    check(capped_response.status == 400 && capped_response.body.find("operator cap") != std::string::npos,
+          "Explicit operator cap was ignored or unexplained");
+    capped.handle(image_request, capped_response);
+    check(capped_response.status == 400, "Model defaults bypassed an explicit operator cap");
+    auto capped_body = override_body;
+    capped_body["steps"] = 12;
+    explicit_image.body = capped_body.dump();
+    capped.handle(explicit_image, capped_response);
+    check(capped_response.status == 200 && image_captured["steps"] == 12,
+          "Client steps within the operator cap were rejected");
+    auto batch_sd = sd_request;
+    auto batch_body = json::parse(batch_sd.body);
+    batch_body.update({{"width", 1536}, {"height", 1024}, {"steps", 16}, {"cfg_scale", 7},
+                       {"batch_size", 2}, {"clip_skip", 2}, {"seed", 4294967296LL}});
+    batch_sd.body = batch_body.dump();
+    httplib::Response batch_response;
+    overrides.handle(batch_sd, batch_response);
+    check(batch_response.status == 200 && json::parse(batch_response.body)["images"].size() == 2 &&
+              image_captured["n"] == 2 && image_captured["steps"] == 16 &&
+              image_captured["cfg_scale"] == 7 && image_captured["size"] == "1536x1024" &&
+              image_captured["clip_skip"] == 2 && image_captured["seed"] == 4294967296LL,
+          "SD adapter dropped client controls or batch images");
+    auto long_prompt = image_request;
+    auto long_body = json::parse(long_prompt.body);
+    long_body["prompt"] = std::string(3000, 'x') + " sd_cpp_extra_args is plain text";
+    long_prompt.body = long_body.dump();
+    overrides.handle(long_prompt, override_response);
+    check(override_response.status == 200 && image_captured["prompt"] == long_body["prompt"],
+          "Direct image prompt was shortened or classified by a runtime field name");
     check(captured["temperature"] == 0.4 && captured["min_p"] == 0.1 &&
               captured["max_tokens"] == 256,
           "Explicit sampling overwritten");

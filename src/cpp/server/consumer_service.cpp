@@ -201,8 +201,14 @@ struct ImagePromptFailure : std::runtime_error {
 };
 void dispatch_image(const json &body, const std::string &id, httplib::Response &res,
                     const std::function<std::string(const std::string &)> &write_prompt = {}) {
-    if (body.contains("image_size") && !valid_consumer_image_size(body["image_size"]))
-        throw std::invalid_argument("Unsupported image size");
+    auto options = body.value("image_options", json::object());
+    if (options.contains("prompt")) throw std::invalid_argument("Use the chat message for the image prompt");
+    if (body.contains("image_size")) {
+        if (options.contains("size") && options["size"] != body["image_size"])
+            throw std::invalid_argument("Conflicting image dimensions");
+        options["size"] = body["image_size"];
+    }
+    validate_consumer_image_options(options);
     const auto &messages = body.at("messages");
     const auto [user, assistant, result] = image_turn(messages);
     if (user == messages.size()) throw std::invalid_argument("An image prompt is required");
@@ -210,8 +216,7 @@ void dispatch_image(const json &body, const std::string &id, httplib::Response &
     std::string finish = "stop";
     if (result == messages.size()) {
         auto prompt = message_text(messages[user].at("content"));
-        if (prompt.empty() || prompt.size() > 2000)
-            throw std::invalid_argument("Image prompt must contain 1 through 2000 bytes");
+        if (prompt.empty()) throw std::invalid_argument("Image prompt required");
         if (user + 1 != messages.size())
             throw std::invalid_argument("Expected a new image prompt or matching tool result");
         std::string tool_name;
@@ -232,8 +237,9 @@ void dispatch_image(const json &body, const std::string &id, httplib::Response &
         if (tool_name.empty() || body.value("tool_choice", json("auto")) == "none")
             throw std::invalid_argument("Image tool must be enabled");
         if (write_prompt) prompt = write_prompt(prompt);
-        json arguments = {{"prompt", prompt}};
-        if (body.contains("image_size")) arguments["size"] = body["image_size"];
+        json arguments = options;
+        arguments["prompt"] = prompt;
+        validate_consumer_image_options(arguments);
         message["tool_calls"] = json::array({{
             {"id", "image_" + id}, {"type", "function"},
             {"function", {{"name", tool_name},
@@ -305,8 +311,8 @@ json ConsumerConfig::defaults() {
             {"reconcile_interval_seconds", 10},
             {"max_inflight", 8},
             {"max_voice_clients", 16},
-            {"image_max_steps", 8},
-            {"image_timeout_seconds", 300},
+            {"image_max_steps", 0},
+            {"image_timeout_seconds", 1200},
             {"image_size", "512x512"},
             {"image_min_available_gib", 12},
             {"image_prompt_model", ""},
@@ -396,11 +402,11 @@ ConsumerConfig ConsumerConfig::parse(const json &input) {
             "image_timeout_seconds must be 1 through 1800");
     if (!valid_consumer_image_size(result["image_size"]))
         throw std::invalid_argument(
-            "Image dimensions must be 256 through 1024 in multiples of 64");
+            "Image size must be positive WIDTHxHEIGHT within 32-bit dimensions");
     if (!result["image_max_steps"].is_number_integer() ||
-        result["image_max_steps"].get<int>() < 1 ||
-        result["image_max_steps"].get<int>() > 8)
-        throw std::invalid_argument("image_max_steps must be 1 through 8");
+        result["image_max_steps"].get<int64_t>() < 0 ||
+        result["image_max_steps"].get<int64_t>() > INT32_MAX)
+        throw std::invalid_argument("image_max_steps must be a nonnegative 32-bit integer; zero disables the operator cap");
     if (!result["image_min_available_gib"].is_number() ||
         !std::isfinite(result["image_min_available_gib"].get<double>()) ||
         result["image_min_available_gib"].get<double>() < 0 ||
@@ -647,17 +653,23 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
             const auto body = parse_unique(req.body);
             static const std::set<std::string> fields = {
                 "model", "prompt", "negative_prompt", "width", "height",
-                "steps", "cfg_scale", "seed", "batch_size", "sampler_name", "scheduler"};
+                "steps", "cfg_scale", "seed", "batch_size", "sampler_name", "scheduler", "flow_shift", "clip_skip"};
             if (!body.is_object()) throw std::invalid_argument("Object required");
             for (const auto &[key, value] : body.items())
                 if (!fields.count(key)) throw std::invalid_argument("Unsupported image option");
-            if (body.value("batch_size", json(1)) != 1)
-                throw std::invalid_argument("One image required");
-            const int width = body.value("width", 512), height = body.value("height", 512);
             json translated = {{"model", body.value("model", json("image-generation"))},
-                               {"prompt", body.at("prompt")},
-                               {"size", std::to_string(width) + "x" + std::to_string(height)}};
-            for (const char *field : {"negative_prompt", "steps", "cfg_scale", "seed"})
+                               {"prompt", body.at("prompt")}};
+            const auto default_size = s.config.value["image_size"].get<std::string>();
+            const auto separator = default_size.find('x');
+            for (const char *field : {"width", "height"})
+                if (body.contains(field) && (!body[field].is_number_integer() ||
+                    body[field].get<int64_t>() < 1 || body[field].get<int64_t>() > INT32_MAX))
+                    throw std::invalid_argument("Invalid image dimensions");
+            const int width = body.value("width", std::stoi(default_size.substr(0, separator)));
+            const int height = body.value("height", std::stoi(default_size.substr(separator + 1)));
+            translated["size"] = std::to_string(width) + "x" + std::to_string(height);
+            if (body.contains("batch_size")) translated["n"] = body["batch_size"];
+            for (const char *field : {"negative_prompt", "steps", "cfg_scale", "seed", "flow_shift", "clip_skip"})
                 if (body.contains(field)) translated[field] = body[field];
             for (const auto &[input, output] : std::map<std::string, std::string>{
                      {"sampler_name", "sample_method"}, {"scheduler", "scheduler"}}) {
@@ -671,8 +683,9 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
             if (res.status == 200) {
                 try {
                     const auto generated = json::parse(res.body);
-                    reply(res, 200, {{"images", json::array({generated.at("data").at(0).at("b64_json")})},
-                                     {"parameters", body}, {"info", "{}"}});
+                    json data = json::array();
+                    for (const auto &item : generated.at("data")) data.push_back(item.at("b64_json"));
+                    reply(res, 200, {{"images", data}, {"parameters", body}, {"info", "{}"}});
                 } catch (...) {
                     reject(res, 502, "Invalid image backend response");
                 }
@@ -866,8 +879,9 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                              {"object", "model"},
                              {"owned_by", "lemonade"},
                              {"purpose", purpose}};
+                json metadata = json::object();
                 try {
-                    auto metadata = s.manager.metadata(role);
+                    metadata = s.manager.metadata(role);
                     item["alias_of"] = metadata["id"];
                     for (const auto &field :
                          {"checkpoint", "labels", "context_length", "size", "recipe"})
@@ -878,7 +892,19 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                 }
                 if (role == "image-generation") {
                     item["default_size"] = s.config.value["image_size"];
-                    item["size_limits"] = {{"min_dimension", 256}, {"max_dimension", 1024}, {"dimension_multiple", 64}};
+                    item["size_limits"] = {{"min_dimension", 1}, {"max_dimension", INT32_MAX}};
+                    item["image_options"] = consumer_image_options_schema();
+                    item["operator_step_cap"] = s.config.value["image_max_steps"];
+                    item["image_defaults"] = {{"size", s.config.value["image_size"]}, {"n", 1}, {"seed", -1}};
+                    const auto recipe = metadata.value("recipe_options", json::object());
+                    const auto defaults = metadata.value("image_defaults", json::object());
+                    for (const auto &[field, option] : std::map<std::string, std::string>{
+                            {"steps", "steps"}, {"cfg_scale", "cfg_scale"},
+                            {"sample_method", "sampling_method"}, {"scheduler", "scheduler"},
+                            {"flow_shift", "flow_shift"}, {"clip_skip", "clip_skip"}}) {
+                        if (recipe.contains(option)) item["image_defaults"][field] = recipe[option];
+                        else if (defaults.contains(option)) item["image_defaults"][field] = defaults[option];
+                    }
                     item["interfaces"] = {"images/generations", "chat/completions"};
                     const auto prompt_model = s.config.value["image_prompt_model"].get<std::string>();
                     item["chat_mode"] = prompt_model.empty()
@@ -934,8 +960,19 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                         {"default", s.config.value["image_prompt_model"] == "" ? "direct" : "creative"}}}}}}})}};
                 schema["allOf"][1]["properties"]["image_size"] = {
                     {"type", "string"},
-                    {"description", "For image-generation chat only. Explicit output WIDTHxHEIGHT; dimensions are 256 through 1024 in multiples of 64."},
+                    {"description", "For image-generation chat only. Explicit output WIDTHxHEIGHT; model-specific dimension requirements apply."},
                     {"default", s.config.value["image_size"]}};
+                auto image_options = consumer_image_options_schema();
+                image_options.erase("prompt");
+                schema["allOf"][1]["properties"]["image_options"] = {
+                    {"type", "object"}, {"properties", image_options}, {"additionalProperties", false},
+                    {"description", "Explicit image generation controls. Omitted fields use model/service defaults."}};
+                auto &image_schema = contract["paths"][std::string(prefix) + "images/generations"]
+                    ["post"]["requestBody"]["content"]["application/json"]["schema"];
+                image_schema = {{"type", "object"}, {"properties", consumer_image_options_schema()},
+                    {"required", {"model", "prompt"}}, {"additionalProperties", false}};
+                image_schema["properties"]["model"] = {{"type", "string"}, {"enum", {"image-generation"}}};
+                image_schema["properties"]["response_format"] = {{"type", "string"}, {"enum", {"b64_json"}}};
             }
             reply(res, 200, contract);
             return;
@@ -1073,7 +1110,7 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                         if (!object.is_object() || object.size() != 1) throw std::runtime_error("Invalid prompt object");
                         const auto written = object.at("prompt").get<std::string>();
                         if (written.empty() || written.size() > 2000 ||
-                            written.find("sd_cpp_extra_args") != std::string::npos)
+                            written.find("<sd_cpp_extra_args>") != std::string::npos)
                             throw std::runtime_error("Invalid prompt");
                         planned = true;
                         return written;
@@ -1096,69 +1133,28 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                 (ep != "images/generations" && role == "image-generation"))
                 throw std::invalid_argument("Model does not support endpoint");
             if (ep == "images/generations") {
-                static const std::set<std::string> fields = {
-                    "model",           "prompt", "size", "n",
-                    "response_format", "steps",  "seed", "cfg_scale", "negative_prompt", "sample_method", "scheduler"};
-                for (const auto &[key, value] : body.items())
-                    if (!fields.count(key))
-                        throw std::invalid_argument("Unsupported image option");
-                if (!body.contains("prompt") || !body["prompt"].is_string() ||
-                    body["prompt"].get_ref<const std::string &>().empty() ||
-                    body["prompt"].get_ref<const std::string &>().size() >
-                        2000 ||
-                    body["prompt"].get_ref<const std::string &>().find(
-                        "sd_cpp_extra_args") != std::string::npos)
-                    throw std::invalid_argument(
-                        "Bounded plain image prompt required");
-                if (body.value("n", json(1)) != 1 ||
-                    body.value("response_format", json("b64_json")) != "b64_json")
-                    throw std::invalid_argument(
-                        "One base64 image required");
-                const auto size = body.value("size", s.config.value["image_size"]);
-                if (!valid_consumer_image_size(size))
-                    throw std::invalid_argument("Unsupported image size");
-                const std::map<std::string, std::set<std::string>> sampling = {
-                    {"sample_method", {"euler", "euler_a", "heun", "dpm2", "dpm++2s_a", "dpm++2m", "dpm++2mv2", "ipndm", "ipndm_v", "lcm", "ddim_trailing", "tcd"}},
-                    {"scheduler", {"discrete", "karras", "exponential", "ays", "gits", "smoothstep", "sgm_uniform", "simple", "kl_optimal", "lcm", "beta"}}};
-                for (const auto &[field, supported] : sampling)
-                    if (body.contains(field) &&
-                        (!body[field].is_string() || !supported.count(body[field].get<std::string>())))
-                        throw std::invalid_argument("Unsupported image sampler or scheduler");
-                json steps = 4;
-                if (body.contains("steps")) {
-                    steps = body["steps"];
-                } else if (s.manager.metadata) {
-                    const auto model = s.manager.metadata(role);
-                    const auto options = model.value("recipe_options", json::object());
-                    const auto defaults = model.value("image_defaults", json::object());
-                    if (options.contains("steps"))
-                        steps = options["steps"];
-                    else if (defaults.contains("steps"))
-                        steps = defaults["steps"];
+                json options = body;
+                options.erase("model");
+                options.erase("response_format");
+                if (body.value("response_format", json("b64_json")) != "b64_json")
+                    throw std::invalid_argument("The image runtime returns b64_json");
+                if (!options.contains("prompt")) throw std::invalid_argument("Image prompt required");
+                validate_consumer_image_options(options);
+                const auto max_steps = s.config.value["image_max_steps"].get<int>();
+                if (max_steps > 0) {
+                    json steps = body.value("steps", json(nullptr));
+                    if (steps.is_null() && s.manager.metadata) {
+                        const auto model = s.manager.metadata(role);
+                        const auto recipe = model.value("recipe_options", json::object());
+                        const auto defaults = model.value("image_defaults", json::object());
+                        steps = recipe.value("steps", defaults.value("steps", json(nullptr)));
+                    }
+                    if (!steps.is_null() && (!steps.is_number_integer() || steps.get<int64_t>() > max_steps))
+                        throw std::invalid_argument("Image steps exceed the configured operator cap");
                 }
-                if (!steps.is_number_integer() || steps.get<int>() < 1 ||
-                    steps.get<int>() >
-                        s.config.value["image_max_steps"].get<int>())
-                    throw std::invalid_argument("Image step limit exceeded");
-                if (body.contains("seed") &&
-                    (!body["seed"].is_number_integer() ||
-                     body["seed"].get<int64_t>() < -1 ||
-                     body["seed"].get<int64_t>() > INT32_MAX))
-                    throw std::invalid_argument("Invalid seed");
-                if (body.contains("cfg_scale") &&
-                    (!body["cfg_scale"].is_number() ||
-                     !std::isfinite(body["cfg_scale"].get<double>()) ||
-                     body["cfg_scale"].get<double>() < 0 || body["cfg_scale"].get<double>() > 4))
-                    throw std::invalid_argument("CFG scale must be 0 through 4");
-                if (body.contains("negative_prompt") &&
-                    (!body["negative_prompt"].is_string() ||
-                     body["negative_prompt"].get_ref<const std::string &>().size() > 2000 ||
-                     body["negative_prompt"].get_ref<const std::string &>().find("sd_cpp_extra_args") != std::string::npos))
-                    throw std::invalid_argument("Bounded plain negative prompt required");
-                body["n"] = 1;
-                body["response_format"] = "b64_json";
-                body["size"] = size;
-                body["steps"] = steps;
+                if (!body.contains("n")) body["n"] = 1;
+                if (!body.contains("response_format")) body["response_format"] = "b64_json";
+                if (!body.contains("size")) body["size"] = s.config.value["image_size"];
             }
             if (s.config.value["presets"].contains(role) && ep != "/api/show") {
                 auto *target = &body;
@@ -1182,6 +1178,9 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
     } catch (const ImagePromptFailure &error) {
         ++s.failures;
         reject(res, error.status, error.what());
+        return;
+    } catch (const std::invalid_argument &error) {
+        reject(res, 400, error.what());
         return;
     } catch (...) {
         reject(res, 400, "Invalid or ambiguous consumer request");
