@@ -131,10 +131,10 @@ index 72c4f28..de21411 100644
 +      }
        const subagents = sanitizedModelSpec.subagents;
 diff --git a/packages/api/src/modelSpecs/modelSpecs.test.ts b/packages/api/src/modelSpecs/modelSpecs.test.ts
-index 359ff23..7e7a5af 100644
+index 359ff23..ae782df 100644
 --- a/packages/api/src/modelSpecs/modelSpecs.test.ts
 +++ b/packages/api/src/modelSpecs/modelSpecs.test.ts
-@@ -47,3 +47,9 @@ describe('modelSpecs helpers', () => {
+@@ -47,3 +47,16 @@ describe('modelSpecs helpers', () => {
      });
 -    expect(sanitizedModelSpecs.list[0]).not.toHaveProperty('skills');
 +    expect(sanitizedModelSpecs.list[0].skills).toBe(true);
@@ -142,6 +142,13 @@ index 359ff23..7e7a5af 100644
 +  });
 +
 +  it.each([true, false, undefined])('preserves the public Skills default %s', (skills) => {
-+    const config = { list: [{ name: 'default', label: 'Default', skills }] };
++    const config = {
++      list: [{
++        name: 'default',
++        label: 'Default',
++        skills,
++        preset: { endpoint: EModelEndpoint.openAI, model: 'gpt-4o' },
++      }],
++    };
 +    expect(sanitizeModelSpecs(config).list[0].skills).toBe(skills);
    });
