@@ -257,6 +257,7 @@ int main() {
           json{{"documents", {{"bad/path", "text"}}}},
           json{{"documents", {{"oversized", std::string(16385, 'x')}}}},
           json{{"enabled", "yes"}}, json{{"critical_models", nullptr}},
+          json{{"image_prompt_model", "agent-work"}}, json{{"image_prompt_model", true}},
           json{{"critical_models", {"small-task", "small-task"}}},
           json{{"public_url", "http://user:secret@host"}},
           json{{"presets", {{"small-task", {{"min_p", 2}}}}}}})
@@ -454,6 +455,100 @@ int main() {
               sse.find("chat.completion.chunk") != std::string::npos &&
               sse.find("data: [DONE]") != std::string::npos,
           "Image tool SSE failed");
+    int prompt_writes = 0, planner_status = 200;
+    std::string planner_finish = "stop";
+    json planner_content = {{"prompt", "Creative fox watercolor on textured paper"}};
+    auto prompt_manager = manager;
+    prompt_manager.invoke = [&](const std::string &path, const auto &req, auto &res) {
+        ++prompt_writes;
+        const auto body = json::parse(req.body);
+        check(path == "/api/v1/chat/completions" && body["model"] == "chat-roleplay" &&
+                  !body.contains("tools") && body["stream"] == false && body["max_tokens"] == 384 &&
+                  body["response_format"]["type"] == "json_schema" &&
+                  body["messages"][1]["content"] == exact_prompt &&
+                  body["min_p"] == 0.05 && body["top_k"] == 0,
+              "Creative image prompt did not use the bounded roleplay writer and its sampling defaults");
+        res.status = planner_status;
+        res.set_content(json{{"choices", json::array({{
+            {"finish_reason", planner_finish}, {"message", {{"content", planner_content.dump()}}}}})}}.dump(),
+                        "application/json");
+    };
+    ConsumerService creative(lemon::ConsumerConfig::parse({{"image_prompt_model", "chat-roleplay"}}),
+                             prompt_manager);
+    for (const auto &prefix : {"/api/v0/", "/api/v1/", "/v0/", "/v1/"}) {
+        const auto previous = prompt_writes;
+        httplib::Response planned;
+        creative.handle(request(std::string(prefix) + "chat/completions", dispatch), planned);
+        check(planned.status == 200 && prompt_writes == previous + 1,
+              "Creative image request did not write exactly one prompt");
+        const auto message = json::parse(planned.body)["choices"][0]["message"];
+        check(json::parse(message["tool_calls"][0]["function"]["arguments"].get<std::string>())["prompt"] ==
+                  planner_content["prompt"], "Creative prompt not sent to image tool");
+        auto done = dispatch;
+        done["messages"].push_back(message);
+        done["messages"].push_back({{"role", "tool"}, {"tool_call_id", message["tool_calls"][0]["id"]},
+            {"content", "Image generated successfully. The image is attached."}});
+        httplib::Response completed;
+        creative.handle(request(std::string(prefix) + "chat/completions", done), completed);
+        check(completed.status == 200 && prompt_writes == previous + 1 &&
+                  json::parse(completed.body)["choices"][0]["message"]["content"] == "Image ready.",
+              "Creative image completion invoked the writer again");
+        auto projected = done;
+        projected["messages"].back()["content"] =
+            "Tool response is included in the next message as a Human message";
+        projected["messages"].push_back({{"role", "user"}, {"content", json::array({
+            {{"type", "text"}, {"text", "Image generated successfully. The image is attached to this tool result."}},
+            {{"type", "image_url"}, {"image_url", {{"url", "data:image/png;base64,cG5n"}}}}})}});
+        projected["messages"].push_back({{"role", "user"}, {"content",
+            "System notice: this turn has about 2 more tool-calling rounds left before it is cut off."}});
+        httplib::Response projected_result;
+        creative.handle(request(std::string(prefix) + "chat/completions", projected), projected_result);
+        check(projected_result.status == 200 && prompt_writes == previous + 1 &&
+                  json::parse(projected_result.body)["choices"][0]["message"]["content"] == "Image ready.",
+              "Creative artifact projection invoked the writer or generated again");
+        auto direct = dispatch;
+        direct["image_prompt_mode"] = "direct";
+        httplib::Response raw;
+        creative.handle(request(std::string(prefix) + "chat/completions", direct), raw);
+        check(raw.status == 200 && prompt_writes == previous + 1 &&
+                  json::parse(json::parse(raw.body)["choices"][0]["message"]["tool_calls"][0]
+                                  ["function"]["arguments"].get<std::string>())["prompt"] == exact_prompt,
+              "Direct override used the creative writer");
+    }
+    auto bad_mode = dispatch;
+    bad_mode["image_prompt_mode"] = "agent";
+    httplib::Response invalid_mode;
+    creative.handle(request("/v1/chat/completions", bad_mode), invalid_mode);
+    check(invalid_mode.status == 400, "Invalid image prompt mode accepted");
+    planner_status = 503;
+    httplib::Response unavailable_writer;
+    creative.handle(request("/v1/chat/completions", dispatch), unavailable_writer);
+    check(unavailable_writer.status == 503 && !unavailable_writer.body.empty(),
+          "Unavailable creative writer produced an image call");
+    planner_status = 200;
+    planner_finish = "length";
+    httplib::Response incomplete_prompt;
+    creative.handle(request("/v1/chat/completions", dispatch), incomplete_prompt);
+    check(incomplete_prompt.status == 502, "Truncated creative prompt accepted");
+    planner_finish = "stop";
+    planner_content = {{"prompt", ""}};
+    httplib::Response empty_prompt;
+    creative.handle(request("/v1/chat/completions", dispatch), empty_prompt);
+    check(empty_prompt.status == 502, "Empty creative prompt accepted");
+    httplib::Response creative_catalog;
+    creative.handle(request("/v1/models"), creative_catalog);
+    const auto creative_models = json::parse(creative_catalog.body);
+    for (const auto &model : creative_models["data"])
+        if (model["id"] == "image-generation")
+            check(model["prompt_model"] == "chat-roleplay" && model["prompt_passthrough"] == true &&
+                      model["chat_prompt_passthrough"] == false && model["chat_modes"].size() == 2,
+                  "Creative and direct image capabilities were ambiguous");
+    httplib::Response creative_openapi;
+    creative.handle(request("/openapi.json"), creative_openapi);
+    const auto contract = json::parse(creative_openapi.body);
+    check(contract["paths"]["/v1/chat/completions"]["post"]["requestBody"]["content"]
+                  ["application/json"]["schema"]["allOf"][1]["properties"]["image_prompt_mode"]["default"] == "creative",
+          "Image prompt mode missing from consumer API contract");
     captured_path = llm_captured_path;
     int image_releases = 0;
     double headroom = 32;

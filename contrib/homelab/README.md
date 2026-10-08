@@ -91,13 +91,28 @@ backend handling. Disconnects during a synchronous Wyoming backend call close
 the session after that call returns; this is not an abort guarantee for speech.
 OpenAI cancellation remains in the existing manager handlers.
 
-## Direct image requests
+## Image prompts and generation
 
 The consumer image alias also accepts OpenAI chat completions for clients that
 attach generated images through tools. Set `model: image-generation` and enable
 one `generate_image` tool, optionally with LibreChat's `_mcp_` name suffix.
-Lemonade forwards the latest user text as the tool's `prompt` without an LLM,
-rewriting, content classification or semantic refusal. Streaming emits standard
+By default, Lemonade forwards the latest user text as the tool's `prompt` without
+an LLM. Set `consumer.image_prompt_model: chat-roleplay` to enable the creative
+writer. It uses the roleplay alias, its sampling defaults, a structured JSON
+response and a 384-token output limit. The writer produces the prompt only.
+Lemonade constructs the tool call itself. It does not require the writer to
+support tool calls or vision. No HA or agent LLM participates.
+
+The chat request's `image_prompt_mode` can be `creative` or `direct`. When the
+writer is configured, creative is the default. Explicit direct mode bypasses
+the writer. `POST /v1/images/generations` and the SD-compatible API always use
+the provided prompt directly. Discovery distinguishes these raw generation
+interfaces from the chat interface and reports the configured prompt model.
+Malformed or incomplete writer results fail before generation. They are not
+silently rewritten or replayed. The direct path remains available independently.
+Neither path has a separate content classifier or safety checker.
+
+Streaming emits standard
 OpenAI tool-call chunks. After the matching tool result, it confirms success or
 reports failure without submitting the job again. Image artifacts projected into
 synthetic user messages and tool-budget notices remain result context. They do

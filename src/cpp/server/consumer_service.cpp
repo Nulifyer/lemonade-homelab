@@ -156,8 +156,12 @@ bool image_tool_context(const json &message) {
     }
     return image && success;
 }
-void dispatch_image(const json &body, const std::string &id, httplib::Response &res) {
-    const auto &messages = body.at("messages");
+struct ImageTurn {
+    size_t user;
+    size_t assistant;
+    size_t result;
+};
+ImageTurn image_turn(const json &messages) {
     if (!messages.is_array() || messages.empty() || messages.size() > 256)
         throw std::invalid_argument("Bounded messages are required");
     size_t user = messages.size(), assistant = messages.size(), result = messages.size();
@@ -188,13 +192,24 @@ void dispatch_image(const json &body, const std::string &id, httplib::Response &
             } else result = messages.size();
         }
     }
+    return {user, assistant, result};
+}
+struct ImagePromptFailure : std::runtime_error {
+    int status;
+    ImagePromptFailure(int code, const std::string &message)
+        : std::runtime_error(message), status(code) {}
+};
+void dispatch_image(const json &body, const std::string &id, httplib::Response &res,
+                    const std::function<std::string(const std::string &)> &write_prompt = {}) {
+    const auto &messages = body.at("messages");
+    const auto [user, assistant, result] = image_turn(messages);
     if (user == messages.size()) throw std::invalid_argument("An image prompt is required");
-    const auto prompt = message_text(messages[user].at("content"));
-    if (prompt.empty() || prompt.size() > 2000)
-        throw std::invalid_argument("Image prompt must contain 1 through 2000 bytes");
     json message = {{"role", "assistant"}, {"content", nullptr}};
     std::string finish = "stop";
     if (result == messages.size()) {
+        auto prompt = message_text(messages[user].at("content"));
+        if (prompt.empty() || prompt.size() > 2000)
+            throw std::invalid_argument("Image prompt must contain 1 through 2000 bytes");
         if (user + 1 != messages.size())
             throw std::invalid_argument("Expected a new image prompt or matching tool result");
         std::string tool_name;
@@ -214,6 +229,7 @@ void dispatch_image(const json &body, const std::string &id, httplib::Response &
         }
         if (tool_name.empty() || body.value("tool_choice", json("auto")) == "none")
             throw std::invalid_argument("Image tool must be enabled");
+        if (write_prompt) prompt = write_prompt(prompt);
         message["tool_calls"] = json::array({{
             {"id", "image_" + id}, {"type", "function"},
             {"function", {{"name", tool_name},
@@ -240,7 +256,7 @@ void dispatch_image(const json &body, const std::string &id, httplib::Response &
     const auto created = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
     json response = {{"id", "chatcmpl-" + id}, {"object", "chat.completion"},
-                     {"created", created}, {"model", "image-generation"},
+                     {"created", created}, {"model", normalize(body.at("model").get<std::string>())},
                      {"system_fingerprint", "lemonade-image-dispatch"},
                      {"choices", json::array({{{"index", 0}, {"message", message},
                                                 {"finish_reason", finish}}})},
@@ -289,6 +305,7 @@ json ConsumerConfig::defaults() {
             {"image_timeout_seconds", 300},
             {"image_size", "512x512"},
             {"image_min_available_gib", 12},
+            {"image_prompt_model", ""},
             {"critical_models", {"small-task", "speech-stt", "speech-tts"}},
             {"public_url", "http://localhost:8080"},
             {"chat_url", ""},
@@ -390,6 +407,9 @@ ConsumerConfig ConsumerConfig::parse(const json &input) {
         result["image_min_available_gib"].get<double>() > 64)
         throw std::invalid_argument(
             "image_min_available_gib must be 0 through 64");
+    if (!result["image_prompt_model"].is_string() ||
+        (result["image_prompt_model"] != "" && result["image_prompt_model"] != "chat-roleplay"))
+        throw std::invalid_argument("image_prompt_model must be empty or chat-roleplay");
     if (!valid_id(result["tts_voice"]))
         throw std::invalid_argument("Invalid consumer voice ID");
     for (const auto &key : {"public_url", "chat_url", "manager_url", "console_url"}) {
@@ -858,8 +878,13 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                 }
                 if (role == "image-generation") {
                     item["interfaces"] = {"images/generations", "chat/completions"};
-                    item["chat_mode"] = "deterministic_image_tool_dispatch";
+                    const auto prompt_model = s.config.value["image_prompt_model"].get<std::string>();
+                    item["chat_mode"] = prompt_model.empty()
+                        ? "deterministic_image_tool_dispatch" : "creative_image_tool_dispatch";
+                    item["chat_modes"] = prompt_model.empty() ? json({"direct"}) : json({"direct", "creative"});
+                    item["prompt_model"] = prompt_model;
                     item["prompt_passthrough"] = true;
+                    item["chat_prompt_passthrough"] = prompt_model.empty();
                 }
                 if (ep == "/api/tags") {
                     item["name"] = role + ":latest";
@@ -896,6 +921,16 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
             contract["security"] = s.api_key.empty()
                                        ? json::array()
                                        : json::array({{{"bearerAuth", json::array()}}});
+            for (const auto &prefix : {"/api/v0/", "/api/v1/", "/v0/", "/v1/"}) {
+                auto &request = contract["paths"][std::string(prefix) + "chat/completions"]["post"]["requestBody"];
+                auto &schema = request["content"]["application/json"]["schema"];
+                const auto original = schema.is_object() ? schema : json::object();
+                schema = {{"allOf", json::array({original, {
+                    {"type", "object"}, {"properties", {{"image_prompt_mode", {
+                        {"type", "string"}, {"enum", {"direct", "creative"}},
+                        {"description", "For image-generation chat only. Creative uses the configured roleplay writer; direct sends user text unchanged."},
+                        {"default", s.config.value["image_prompt_model"] == "" ? "direct" : "creative"}}}}}}})}};
+            }
             reply(res, 200, contract);
             return;
         }
@@ -990,10 +1025,61 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                 return;
             }
             if (ep == "chat/completions" && role == "image-generation") {
-                dispatch_image(body, id, res);
+                const auto prompt_model = s.config.value["image_prompt_model"].get<std::string>();
+                const auto mode = body.value("image_prompt_mode", prompt_model.empty() ? "direct" : "creative");
+                if ((mode != "direct" && mode != "creative") || (mode == "creative" && prompt_model.empty()))
+                    throw std::invalid_argument("Invalid image prompt mode");
+                bool planned = false;
+                std::function<std::string(const std::string &)> write_prompt;
+                if (mode == "creative") write_prompt = [&](const std::string &prompt) {
+                    json plan = {{"model", prompt_model}, {"stream", false}, {"max_tokens", 384},
+                        {"messages", json::array({
+                            {{"role", "system"}, {"content",
+                                "Write a concrete creative image prompt from the user idea. Preserve the subject, "
+                                "style and requested details. Add useful composition, lighting, materials and color. "
+                                "Do not invent text, signatures or extra subjects. "
+                                "Return only a JSON object with the prompt property. Keep the prompt under 1400 "
+                                "characters. Do not describe a tool call."}},
+                            {{"role", "user"}, {"content", prompt}}})},
+                        {"response_format", {{"type", "json_schema"}, {"json_schema", {
+                            {"name", "image_prompt"}, {"strict", true}, {"schema", {
+                                {"type", "object"}, {"properties", {{"prompt", {{"type", "string"}, {"maxLength", 2000}}}}},
+                                {"required", {"prompt"}}, {"additionalProperties", false}}}}}}}};
+                    auto planner_request = req;
+                    planner_request.path = "/v1/chat/completions";
+                    planner_request.body = plan.dump();
+                    const auto closed = req.is_connection_closed;
+                    const auto deadline = std::chrono::steady_clock::now() +
+                        std::chrono::seconds(s.config.value["image_timeout_seconds"].get<int>());
+                    planner_request.is_connection_closed = [closed, deadline] {
+                        return (closed && closed()) || std::chrono::steady_clock::now() >= deadline;
+                    };
+                    httplib::Response planner_response;
+                    handle(planner_request, planner_response);
+                    if (planner_response.status >= 400)
+                        throw ImagePromptFailure(planner_response.status, "Image prompt writer unavailable; try Direct Images");
+                    try {
+                        if (planner_response.body.size() > 8192) throw std::runtime_error("Oversized prompt response");
+                        const auto result = json::parse(planner_response.body);
+                        const auto &choice = result.at("choices").at(0);
+                        if (choice.at("finish_reason") != "stop") throw std::runtime_error("Incomplete prompt");
+                        const auto object = json::parse(choice.at("message").at("content").get<std::string>());
+                        if (!object.is_object() || object.size() != 1) throw std::runtime_error("Invalid prompt object");
+                        const auto written = object.at("prompt").get<std::string>();
+                        if (written.empty() || written.size() > 2000 ||
+                            written.find("sd_cpp_extra_args") != std::string::npos)
+                            throw std::runtime_error("Invalid prompt");
+                        planned = true;
+                        return written;
+                    } catch (...) {
+                        throw ImagePromptFailure(502, "Image prompt writer returned an invalid or incomplete prompt; try Direct Images");
+                    }
+                };
+                dispatch_image(body, id, res, write_prompt);
                 ++s.requests;
                 std::cerr << json{{"event", "consumer_image_dispatch"},
-                                  {"request_id", id}, {"upstream_llm", false}}
+                                  {"request_id", id}, {"upstream_llm", planned},
+                                  {"prompt_model", planned ? prompt_model : ""}, {"prompt_mode", mode}}
                                  .dump() << '\n';
                 return;
             }
@@ -1080,6 +1166,10 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
             }
             mapped.body = body.dump();
         }
+    } catch (const ImagePromptFailure &error) {
+        ++s.failures;
+        reject(res, error.status, error.what());
+        return;
     } catch (...) {
         reject(res, 400, "Invalid or ambiguous consumer request");
         return;

@@ -6,6 +6,7 @@
     "wyoming_host": "ai-voice",
     "wyoming_port": 10300,
     "tts_voice": "af_heart",
+    "image_prompt_model": "chat-roleplay",
     "inference_timeout_seconds": 1200,
     "critical_models": [
       "small-task",
