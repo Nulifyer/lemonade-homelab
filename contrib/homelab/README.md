@@ -158,8 +158,8 @@ Connect ordinary chat clients to the consumer MCP listener.
 
 The consumer `image-generation` alias serves `POST /v1/images/generations`.
 It accepts a plain prompt of at most 2000 bytes, one base64 image, configured
-`image_size` (256x256 or 512x512), `steps` (1 through `image_max_steps`, at most
-8), and an optional integer seed. Backend control tags and extra options are
+`image_size` (256x256, 512x512, 768x768 or 1024x1024), `steps`
+(1 through `image_max_steps`, at most 8), and an optional integer seed. Backend control tags and extra options are
 rejected. One image job can run at a time. `image_min_available_gib` defaults
 to 12 GiB of host available RAM before admission. This is a snapshot guard,
 not a reservation. Unknown platform counters do not invent a budget.

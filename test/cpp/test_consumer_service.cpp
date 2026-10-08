@@ -459,6 +459,30 @@ int main() {
     httplib::Response image_probe;
     images.handle(image_options, image_probe);
     check(image_probe.status == 204, "Image endpoint probe failed");
+    for (const auto &size : {"256x256", "512x512", "768x768", "1024x1024"}) {
+        auto sized_manager = image_manager;
+        sized_manager.invoke = [&](const std::string &, const auto &req, auto &res) {
+            image_captured = json::parse(req.body);
+            res.status = 200;
+            res.set_content("{}", "application/json");
+        };
+        ConsumerService sized(lemon::ConsumerConfig::parse({{"image_size", size}}),
+                              sized_manager);
+        httplib::Response output;
+        sized.handle(image_request, output);
+        check(output.status == 200 && image_captured["size"] == size,
+              "Configured image resolution was not forwarded");
+        auto mismatch = image_request;
+        auto body = json::parse(mismatch.body);
+        body["size"] = "2048x2048";
+        mismatch.body = body.dump();
+        httplib::Response rejected;
+        sized.handle(mismatch, rejected);
+        check(rejected.status == 400,
+              "Caller bypassed the configured resolution bound");
+    }
+    for (const auto &size : {"0x0", "1024x512", "2048x2048", "8192x8192"})
+        invalid([&] { lemon::ConsumerConfig::parse({{"image_size", size}}); });
     auto model_default_manager = image_manager;
     int model_steps = 5;
     model_default_manager.metadata = [&](const std::string &) {

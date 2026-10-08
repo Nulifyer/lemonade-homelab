@@ -235,8 +235,11 @@ ConsumerConfig ConsumerConfig::parse(const json &input) {
             "image_timeout_seconds must be 1 through 1800");
     if (!result["image_size"].is_string() ||
         (result["image_size"] != "256x256" &&
-         result["image_size"] != "512x512"))
-        throw std::invalid_argument("image_size must be 256x256 or 512x512");
+         result["image_size"] != "512x512" &&
+         result["image_size"] != "768x768" &&
+         result["image_size"] != "1024x1024"))
+        throw std::invalid_argument(
+            "image_size must be 256x256, 512x512, 768x768 or 1024x1024");
     if (!result["image_max_steps"].is_number_integer() ||
         result["image_max_steps"].get<int>() < 1 ||
         result["image_max_steps"].get<int>() > 8)
