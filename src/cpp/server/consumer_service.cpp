@@ -316,6 +316,20 @@ json ConsumerConfig::defaults() {
             {"image_size", "512x512"},
             {"image_min_available_gib", 12},
             {"image_prompt_model", ""},
+            {"image_prompt_instructions",
+             "Expand the supplied scene into a concrete image prompt for one still image. "
+             "Treat the supplied facts as constraints. Preserve the background, location, time, weather, "
+             "character count, each character's gender, age, species, appearance, clothing and accessories. "
+             "Keep each attribute and action attached to the correct character. Preserve poses, who is doing "
+             "what to whom, relative positions, held objects and the intent of the moment. Convey that intent "
+             "through the stated expressions, body language and atmosphere. Preserve requested style, framing "
+             "and exclusions. For roleplay context, use the latest explicit scene and clothing state; use "
+             "earlier character descriptions only for details that have not changed. Describe current visible "
+             "state rather than the history of earlier outfits or locations. Do not advance the story, recap "
+             "multiple moments, change outfits or gender, add characters, or replace the intended action. "
+             "Do not guess unspecified identity details. Add compatible lighting, composition and material "
+             "details only where unspecified. Required scene and character facts take priority over decoration. "
+             "Use clear natural-language descriptions rather than names alone. Do not invent text or signatures."},
             {"critical_models", {"small-task", "speech-stt", "speech-tts"}},
             {"public_url", "http://localhost:8080"},
             {"chat_url", ""},
@@ -416,6 +430,11 @@ ConsumerConfig ConsumerConfig::parse(const json &input) {
     if (!result["image_prompt_model"].is_string() ||
         (result["image_prompt_model"] != "" && result["image_prompt_model"] != "chat-roleplay"))
         throw std::invalid_argument("image_prompt_model must be empty or chat-roleplay");
+    if (!result["image_prompt_instructions"].is_string() ||
+        result["image_prompt_instructions"].get<std::string>().empty() ||
+        result["image_prompt_instructions"].get<std::string>().size() > 16384 ||
+        result["image_prompt_instructions"].get<std::string>().find('\0') != std::string::npos)
+        throw std::invalid_argument("image_prompt_instructions must be nonempty text of at most 16384 bytes without NUL");
     if (!valid_id(result["tts_voice"]))
         throw std::invalid_argument("Invalid consumer voice ID");
     for (const auto &key : {"public_url", "chat_url", "manager_url", "console_url"}) {
@@ -1075,18 +1094,16 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                 bool planned = false;
                 std::function<std::string(const std::string &)> write_prompt;
                 if (mode == "creative") write_prompt = [&](const std::string &prompt) {
-                    json plan = {{"model", prompt_model}, {"stream", false}, {"max_tokens", 384},
+                    json plan = {{"model", prompt_model}, {"stream", false}, {"max_tokens", 1024},
                         {"messages", json::array({
                             {{"role", "system"}, {"content",
-                                "Write a concrete creative image prompt from the user idea. Preserve the subject, "
-                                "style and requested details. Add useful composition, lighting, materials and color. "
-                                "Do not invent text, signatures or extra subjects. "
-                                "Return only a JSON object with the prompt property. Keep the prompt under 1400 "
-                                "characters. Do not describe a tool call."}},
+                                s.config.value["image_prompt_instructions"].get<std::string>() +
+                                "\nReturn only a JSON object with the prompt property. Keep the prompt under 6000 "
+                                "bytes. Do not describe a tool call."}},
                             {{"role", "user"}, {"content", prompt}}})},
                         {"response_format", {{"type", "json_schema"}, {"json_schema", {
                             {"name", "image_prompt"}, {"strict", true}, {"schema", {
-                                {"type", "object"}, {"properties", {{"prompt", {{"type", "string"}, {"maxLength", 2000}}}}},
+                                {"type", "object"}, {"properties", {{"prompt", {{"type", "string"}, {"maxLength", 6000}}}}},
                                 {"required", {"prompt"}}, {"additionalProperties", false}}}}}}}};
                     auto planner_request = req;
                     planner_request.path = "/v1/chat/completions";
@@ -1102,14 +1119,14 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                     if (planner_response.status >= 400)
                         throw ImagePromptFailure(planner_response.status, "Image prompt writer unavailable; try Direct Images");
                     try {
-                        if (planner_response.body.size() > 8192) throw std::runtime_error("Oversized prompt response");
+                        if (planner_response.body.size() > 65536) throw std::runtime_error("Oversized prompt response");
                         const auto result = json::parse(planner_response.body);
                         const auto &choice = result.at("choices").at(0);
                         if (choice.at("finish_reason") != "stop") throw std::runtime_error("Incomplete prompt");
                         const auto object = json::parse(choice.at("message").at("content").get<std::string>());
                         if (!object.is_object() || object.size() != 1) throw std::runtime_error("Invalid prompt object");
                         const auto written = object.at("prompt").get<std::string>();
-                        if (written.empty() || written.size() > 2000 ||
+                        if (written.empty() || written.size() > 6000 ||
                             written.find("<sd_cpp_extra_args>") != std::string::npos)
                             throw std::runtime_error("Invalid prompt");
                         planned = true;

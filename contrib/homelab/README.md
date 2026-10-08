@@ -99,9 +99,19 @@ one `generate_image` tool, optionally with LibreChat's `_mcp_` name suffix.
 By default, Lemonade forwards the latest user text as the tool's `prompt` without
 an LLM. Set `consumer.image_prompt_model: chat-roleplay` to enable the creative
 writer. It uses the roleplay alias, its sampling defaults, a structured JSON
-response and a 384-token output limit. The writer produces the prompt only.
+response and a 1,024-token output limit. The writer produces the prompt only.
 Lemonade constructs the tool call itself. It does not require the writer to
 support tool calls or vision. No HA or agent LLM participates.
+
+`consumer.image_prompt_instructions` supplies the writer's editable instructions.
+The default preserves scene, character identity, gender, clothing, actions,
+relative positions and intent. Latest explicit roleplay state takes precedence
+over older descriptions. Compatible visual details fill unspecified gaps.
+Output formatting remains owned by the service. It appends the JSON protocol
+and accepts a prompt up to 6,000 bytes. Saved instruction changes use
+`POST /internal/set` on the manager and require a service restart. They are visible
+in `/v1/service`. SillyTavern owns its separate contextual writer templates in
+Image Generation > Image Prompt Templates. Raw generation bypasses both writers.
 
 The chat request's `image_prompt_mode` can be `creative` or `direct`. When the
 writer is configured, creative is the default. Explicit direct mode bypasses

@@ -299,6 +299,9 @@ int main() {
           json{{"documents", {{"oversized", std::string(16385, 'x')}}}},
           json{{"enabled", "yes"}}, json{{"critical_models", nullptr}},
           json{{"image_prompt_model", "agent-work"}}, json{{"image_prompt_model", true}},
+          json{{"image_prompt_instructions", false}}, json{{"image_prompt_instructions", ""}},
+          json{{"image_prompt_instructions", std::string(16385, 'x')}},
+          json{{"image_prompt_instructions", std::string("a\0b", 3)}},
           json{{"critical_models", {"small-task", "small-task"}}},
           json{{"public_url", "http://user:secret@host"}},
           json{{"presets", {{"small-task", {{"min_p", 2}}}}}}})
@@ -522,13 +525,16 @@ int main() {
     int prompt_writes = 0, planner_status = 200;
     std::string planner_finish = "stop";
     json planner_content = {{"prompt", "Creative fox watercolor on textured paper"}};
+    std::string writer_instructions = defaults["image_prompt_instructions"];
     auto prompt_manager = manager;
     prompt_manager.invoke = [&](const std::string &path, const auto &req, auto &res) {
         ++prompt_writes;
-        const auto body = json::parse(req.body);
+        const json body = json::parse(req.body);
         check(path == "/api/v1/chat/completions" && body["model"] == "chat-roleplay" &&
-                  !body.contains("tools") && body["stream"] == false && body["max_tokens"] == 384 &&
+                  !body.contains("tools") && body["stream"] == false && body["max_tokens"] == 1024 &&
                   body["response_format"]["type"] == "json_schema" &&
+                  body["messages"][0]["content"].get<std::string>().rfind(writer_instructions + "\n", 0) == 0 &&
+                  body["messages"][0]["content"].get<std::string>().find("Return only a JSON object") != std::string::npos &&
                   body["messages"][1]["content"] == exact_prompt &&
                   body["min_p"] == 0.05 && body["top_k"] == 0,
               "Creative image prompt did not use the bounded roleplay writer and its sampling defaults");
@@ -579,6 +585,22 @@ int main() {
                                   ["function"]["arguments"].get<std::string>())["prompt"] == exact_prompt,
               "Direct override used the creative writer");
     }
+    writer_instructions = "Preserve the blue coat, one woman, rainy station and rescue intent. Expand lighting only.";
+    ConsumerService custom_writer(lemon::ConsumerConfig::parse({
+        {"image_prompt_model", "chat-roleplay"}, {"image_prompt_instructions", writer_instructions}}), prompt_manager);
+    planner_content = {{"prompt", std::string(3000, 'x')}};
+    httplib::Response detailed_prompt;
+    custom_writer.handle(request("/v1/chat/completions", dispatch), detailed_prompt);
+    check(detailed_prompt.status == 200 &&
+              json::parse(json::parse(detailed_prompt.body)["choices"][0]["message"]["tool_calls"][0]
+                ["function"]["arguments"].get<std::string>())["prompt"] == planner_content["prompt"] &&
+              custom_writer.configuration()["image_prompt_instructions"] == writer_instructions,
+          "Configured writer instructions or detailed scene prompt were lost");
+    planner_content = {{"prompt", std::string(6001, 'x')}};
+    httplib::Response oversized_prompt;
+    custom_writer.handle(request("/v1/chat/completions", dispatch), oversized_prompt);
+    check(oversized_prompt.status == 502, "Oversized writer output accepted");
+    writer_instructions = defaults["image_prompt_instructions"];
     auto bad_mode = dispatch;
     bad_mode["image_prompt_mode"] = "agent";
     httplib::Response invalid_mode;
