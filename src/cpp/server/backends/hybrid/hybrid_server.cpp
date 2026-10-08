@@ -16,7 +16,7 @@ LlamaCppServer::RuntimeLaunch HybridServer::prepare_runtime(
     const std::string executable = BackendUtils::get_backend_binary_path(*hybrid::spec(), "npu");
     return {executable, DEVICE_GPU | DEVICE_NPU,
             {{"HYBRID_REQUIRE_NPU", "1"}, {"GGML_XDNA_MAX_COPY_GB", budget.dump()},
-             {"GGML_XDNA_HOST_ONLY", "0"}, {"LLAMA_API_KEY", ""}}};
+             {"GGML_XDNA_HOST_ONLY", "0"}, {"LLAMA_API_KEY", ""}}, false};
 }
 namespace hybrid {
 namespace {
@@ -24,10 +24,13 @@ class HybridOps : public BackendOps {
 public:
     void populate_metadata(ModelInfo& info, const BackendOpsContext& ctx) const override {
         llamacpp::ops()->populate_metadata(info, ctx);
-        // This native integration accepts text and disables speculative decode;
-        // checkpoint capabilities do not establish supported hybrid features.
+        // The projector runs on CPU; text keeps XDNA prefill and Vulkan decode.
+        // Speculative decoding is still outside the hybrid runtime contract.
+        const bool has_projector = !info.resolved_path("mmproj").empty();
         info.labels.erase(std::remove_if(info.labels.begin(), info.labels.end(),
-            [](const std::string& label) { return label == "mtp" || label == "vision"; }),
+            [has_projector](const std::string& label) {
+                return label == "mtp" || (label == "vision" && !has_projector);
+            }),
             info.labels.end());
     }
 

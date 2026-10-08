@@ -169,3 +169,14 @@ a PNG content block. It uses the same admission and API policy. The native
 Router unloads the image child after every consumer job, including a disconnect,
 while text and speech runtimes remain loaded. Images are never critical startup
 models. Manager requests retain normal explicit model-management behavior.
+
+## Hybrid vision and load failures
+
+A hybrid model with a resolved matching `mmproj` supports image input. The
+projector runs on CPU because the bundled hybrid device setup currently aborts
+when the image encoder is offloaded. Text uses the existing XDNA prefill and
+Vulkan decode path. Vision is hidden when no projector resolves, and speculative
+decoding remains disabled. No per-model launch flag is required.
+
+With `auto_evict: false`, a failed backend load returns its error without
+unloading other resident models. Critical startup recovery remains independent.

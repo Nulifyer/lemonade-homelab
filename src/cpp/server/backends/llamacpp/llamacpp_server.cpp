@@ -358,8 +358,8 @@ void LlamaCppServer::load(const std::string& model_name,
     // llama-server resolves the mmproj companion itself from the HF repo.
     if (!mmproj_path.empty() && !model_info.extra<bool>("hf_load", false)) {
         push_arg(args, reserved_flags, "--mmproj", mmproj_path);
-        if (!use_gpu) {
-            LOG(DEBUG, "LlamaCpp") << "Skipping mmproj argument since GPU mode is not enabled" << std::endl;
+        if (!use_gpu || !runtime.offload_projector) {
+            LOG(DEBUG, "LlamaCpp") << "Running the vision projector on CPU" << std::endl;
             push_arg(args, reserved_flags, "--no-mmproj-offload");
         }
     }

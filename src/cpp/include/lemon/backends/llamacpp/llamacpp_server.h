@@ -57,6 +57,7 @@ protected:
         std::string executable;
         DeviceType device;
         std::vector<std::pair<std::string, std::string>> environment;
+        bool offload_projector = true;
     };
     virtual RuntimeLaunch prepare_runtime(const std::string& backend, const RecipeOptions& options);
 

@@ -244,6 +244,11 @@ static void test_hybrid_capabilities() {
     lemon::backends::ops_for("hybrid")->populate_metadata(info, {});
     check("Hybrid advertises only accepted text capabilities",
           info.labels == std::vector<std::string>({"chat", "tool-calling"}));
+    info.labels = {"chat", "tool-calling", "mtp", "vision"};
+    info.resolved_paths["mmproj"] = "projector.gguf";
+    lemon::backends::ops_for("hybrid")->populate_metadata(info, {});
+    check("Hybrid vision requires a resolved projector and excludes speculative decode",
+          info.labels == std::vector<std::string>({"chat", "tool-calling", "vision"}));
     check("Hybrid retains GGUF registration validation",
           !lemon::backends::ops_for("hybrid")->validate_registration_checkpoint(
               "org/model-GGUF").empty());

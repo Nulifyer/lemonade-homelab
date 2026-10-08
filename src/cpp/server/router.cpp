@@ -1119,6 +1119,11 @@ void Router::load_model(const std::string& model_name,
                 throw std::runtime_error(error_message);
             }
 
+            if (!config_->auto_evict()) {
+                LOG(ERROR, "Router") << "Backend load failed; eviction is disabled, preserving loaded models" << std::endl;
+                throw std::runtime_error(error_message);
+            }
+
             // A policy change may have dropped this helper during the failed
             // load. Don't unleash the nuclear eviction on behalf of a backend we
             // would immediately discard at commit time anyway.
