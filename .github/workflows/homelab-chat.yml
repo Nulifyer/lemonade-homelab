@@ -41,6 +41,11 @@ jobs:
         run: |
           npx tsc --noEmit
           npm run test:ci -- --runInBand src/utils/__tests__/applyModelSpecEphemeralAgent.test.ts
+      - name: Check API types and explicit tool overrides
+        working-directory: upstream/packages/api
+        run: |
+          npx tsc --noEmit
+          npm test -- --runInBand src/agents/load.spec.ts
       - name: Check startup and conversation loading
         working-directory: upstream
         env:
@@ -58,6 +63,7 @@ jobs:
           file: contrib/librechat/Dockerfile
           build-contexts: |
             chat-client=./upstream/client/dist
+            chat-api=./upstream/packages/api/dist
           push: true
           tags: |
             ghcr.io/nulifyer/librechat-homelab:latest
