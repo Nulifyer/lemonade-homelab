@@ -426,6 +426,9 @@ json SDServer::build_extra_args(const json& request, bool include_flow_shift) co
     // RecipeOptions::merge_precedence_layers / inherit); a value absent from
     // every layer is omitted, letting sd-server apply its own defaults.
     json extra_args;
+    if (request.contains("negative_prompt") && request["negative_prompt"].is_string()) {
+        extra_args["negative_prompt"] = request["negative_prompt"];
+    }
     json sample_params = json::object();
     json guidance = json::object();
 

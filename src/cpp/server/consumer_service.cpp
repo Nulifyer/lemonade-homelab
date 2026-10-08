@@ -461,6 +461,51 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
         reject(res, 400, "Query parameters and encoded bodies are unsupported");
         return;
     }
+    if (ep == "images/generations" && req.method == "OPTIONS") {
+        res.set_header("Allow", "POST, OPTIONS");
+        res.status = 204;
+        return;
+    }
+    if (ep == "/sdapi/v1/txt2img" && req.method == "POST") {
+        try {
+            const auto body = parse_unique(req.body);
+            static const std::set<std::string> fields = {
+                "model", "prompt", "negative_prompt", "width", "height",
+                "steps", "cfg_scale", "seed", "batch_size", "sampler_name", "scheduler"};
+            if (!body.is_object()) throw std::invalid_argument("Object required");
+            for (const auto &[key, value] : body.items())
+                if (!fields.count(key)) throw std::invalid_argument("Unsupported image option");
+            if (body.value("batch_size", json(1)) != 1)
+                throw std::invalid_argument("One image required");
+            if (body.contains("scheduler") && body["scheduler"] != "" && body["scheduler"] != "N/A")
+                throw std::invalid_argument("Use the model scheduler");
+            if (body.contains("sampler_name") && body["sampler_name"] != "" &&
+                body["sampler_name"] != "N/A" && body["sampler_name"] != "euler")
+                throw std::invalid_argument("Use the model sampler");
+            const int width = body.value("width", 512), height = body.value("height", 512);
+            json translated = {{"model", body.value("model", json("image-generation"))},
+                               {"prompt", body.at("prompt")},
+                               {"size", std::to_string(width) + "x" + std::to_string(height)}};
+            for (const char *field : {"negative_prompt", "steps", "cfg_scale", "seed"})
+                if (body.contains(field)) translated[field] = body[field];
+            httplib::Request mapped = req;
+            mapped.path = "/v1/images/generations";
+            mapped.body = translated.dump();
+            handle(mapped, res);
+            if (res.status == 200) {
+                try {
+                    const auto generated = json::parse(res.body);
+                    reply(res, 200, {{"images", json::array({generated.at("data").at(0).at("b64_json")})},
+                                     {"parameters", body}, {"info", "{}"}});
+                } catch (...) {
+                    reject(res, 502, "Invalid image backend response");
+                }
+            }
+        } catch (...) {
+            reject(res, 400, "Invalid or unsupported image request");
+        }
+        return;
+    }
     if (ep == "/mcp" || ep == "/mcp/images") {
         if (req.method != "POST") {
             res.set_header("Allow", "POST");
@@ -691,7 +736,7 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
             if (ep == "images/generations") {
                 static const std::set<std::string> fields = {
                     "model",           "prompt", "size", "n",
-                    "response_format", "steps",  "seed"};
+                    "response_format", "steps",  "seed", "cfg_scale", "negative_prompt"};
                 for (const auto &[key, value] : body.items())
                     if (!fields.count(key))
                         throw std::invalid_argument("Unsupported image option");
@@ -720,6 +765,16 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                      body["seed"].get<int64_t>() < -1 ||
                      body["seed"].get<int64_t>() > INT32_MAX))
                     throw std::invalid_argument("Invalid seed");
+                if (body.contains("cfg_scale") &&
+                    (!body["cfg_scale"].is_number() ||
+                     !std::isfinite(body["cfg_scale"].get<double>()) ||
+                     body["cfg_scale"].get<double>() < 0 || body["cfg_scale"].get<double>() > 4))
+                    throw std::invalid_argument("CFG scale must be 0 through 4");
+                if (body.contains("negative_prompt") &&
+                    (!body["negative_prompt"].is_string() ||
+                     body["negative_prompt"].get_ref<const std::string &>().size() > 2000 ||
+                     body["negative_prompt"].get_ref<const std::string &>().find("sd_cpp_extra_args") != std::string::npos))
+                    throw std::invalid_argument("Bounded plain negative prompt required");
                 body["n"] = 1;
                 body["response_format"] = "b64_json";
                 body["size"] = s.config.value["image_size"];

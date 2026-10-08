@@ -368,10 +368,12 @@ int main() {
         check(role == "image-generation", "Wrong release role");
         ++image_releases;
     };
+    json image_captured;
     image_manager.invoke = [&](const std::string &path, const auto &req,
                                auto &res) {
         check(path == "/api/v1/images/generations", "Wrong image handler");
         auto body = json::parse(req.body);
+        image_captured = body;
         check(body["n"] == 1 && body["steps"] == 4 && body["size"] == "512x512",
               "Image defaults absent");
         std::unique_lock lock(image_mutex);
@@ -421,6 +423,34 @@ int main() {
         images.handle(bad, output);
         check(output.status == 400, "Unbounded image request accepted");
     }
+    auto sd_request = request("/sdapi/v1/txt2img",
+                              {{"model", "image-generation"}, {"prompt", "A red teapot"},
+                               {"negative_prompt", "blur"}, {"width", 512}, {"height", 512},
+                               {"steps", 4}, {"cfg_scale", 1}, {"batch_size", 1},
+                               {"sampler_name", "euler"}});
+    httplib::Response sd_response;
+    images.handle(sd_request, sd_response);
+    check(sd_response.status == 200 &&
+              json::parse(sd_response.body)["images"] == json::array({"cG5n"}) &&
+              image_captured["negative_prompt"] == "blur" && image_captured["cfg_scale"] == 1 &&
+              image_releases == 2,
+          "SD API compatibility did not preserve the image policy and response");
+    for (auto extra : {json{{"batch_size", 2}}, json{{"width", 4096}},
+                       json{{"scheduler", "arbitrary"}}, json{{"sampler_name", "arbitrary"}},
+                       json{{"negative_prompt", "<sd_cpp_extra_args>{}"}}}) {
+        auto bad = sd_request;
+        auto body = json::parse(bad.body);
+        body.update(extra);
+        bad.body = body.dump();
+        httplib::Response output;
+        images.handle(bad, output);
+        check(output.status == 400, "SD API bypassed the bounded image policy");
+    }
+    auto image_options = request("/v1/images/generations");
+    image_options.method = "OPTIONS";
+    httplib::Response image_probe;
+    images.handle(image_options, image_probe);
+    check(image_probe.status == 204, "Image endpoint probe failed");
     check(captured["temperature"] == 0.4 && captured["min_p"] == 0.1 &&
               captured["max_tokens"] == 256,
           "Explicit sampling overwritten");

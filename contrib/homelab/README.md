@@ -180,3 +180,13 @@ decoding remains disabled. No per-model launch flag is required.
 
 With `auto_evict: false`, a failed backend load returns its error without
 unloading other resident models. Critical startup recovery remains independent.
+
+## SillyTavern image API
+
+The consumer listener supports `POST /sdapi/v1/txt2img` for the native
+stable-diffusion.cpp client in SillyTavern. This fixed protocol path is separate
+from the manager's versioned routes. It adapts to the same image-generation
+role, memory budget, single-job limit, timeout and runtime release policy as
+`/v1/images/generations`. The response contains a base64 `images` array.
+Use one 512-pixel image, four steps, CFG 1, the model's scheduler and Euler.
+Other supported API controls remain bounded. The OPTIONS image probe is read-only.
