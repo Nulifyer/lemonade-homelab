@@ -28,7 +28,7 @@ FROM ubuntu:26.04 AS image-runtime
 ARG DEBIAN_FRONTEND=noninteractive
 COPY --from=hybrid-runtime /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 RUN sed -i 's|http://security.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g; s|http://archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources && apt-get -o Acquire::Retries=3 -o Acquire::https::CAInfo=/etc/ssl/certs/ca-certificates.crt update && apt-get -o Acquire::https::CAInfo=/etc/ssl/certs/ca-certificates.crt install -y --no-install-recommends curl unzip ca-certificates && rm -rf /var/lib/apt/lists/*
-RUN curl --fail --location --retry 3 https://github.com/leejet/stable-diffusion.cpp/releases/download/master-843-462d675/sd-master-462d675-bin-Linux-Ubuntu-24.04-x86_64-vulkan.zip -o /tmp/sd.zip && printf '%s  %s\n' 366d8e59319a01f2f3a822b956fb29753983a7d4ada229cb682eec36a9496b40 /tmp/sd.zip | sha256sum -c - && mkdir -p /out && unzip -q /tmp/sd.zip -d /out && rm /tmp/sd.zip && /out/sd-server --version 2>&1 | grep -F 462d675
+RUN curl --fail --location --retry 3 https://github.com/leejet/stable-diffusion.cpp/releases/download/master-843-462d675/sd-master-462d675-bin-Linux-Ubuntu-24.04-x86_64-vulkan.zip -o /tmp/sd.zip && printf '%s  %s\n' 366d8e59319a01f2f3a822b956fb29753983a7d4ada229cb682eec36a9496b40 /tmp/sd.zip | sha256sum -c - && mkdir -p /out && unzip -q /tmp/sd.zip -d /out && rm /tmp/sd.zip && printf '%s  %s\n' 38939323c3e4ca7127af9cf0017410e884b12aae29f6834545a1ca093e00ce54 /out/sd-server f60fb0b9b974319e09b82f26f20cb43bb0f9b154bc1f886e4045bce7a7e2c163 /out/libstable-diffusion.so | sha256sum -c -
 
 FROM hybrid-runtime
 USER root
