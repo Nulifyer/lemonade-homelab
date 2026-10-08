@@ -10,7 +10,7 @@ index 3b33968..e0bb6c8 100644
          file_search: ephemeralAgent?.file_search ?? modelSpec.fileSearch ?? false,
          execute_code: ephemeralAgent?.execute_code ?? modelSpec.executeCode ?? false,
 diff --git a/client/src/utils/__tests__/applyModelSpecEphemeralAgent.test.ts b/client/src/utils/__tests__/applyModelSpecEphemeralAgent.test.ts
-index a13c11e..ef1f1bc 100644
+index a13c11e..c99ad89 100644
 --- a/client/src/utils/__tests__/applyModelSpecEphemeralAgent.test.ts
 +++ b/client/src/utils/__tests__/applyModelSpecEphemeralAgent.test.ts
 @@ -66,4 +66,5 @@ describe('applyModelSpecEphemeralAgent', () => {
@@ -52,6 +52,12 @@ index a13c11e..ef1f1bc 100644
 +
      it('should map artifacts: true to "default" string', () => {
        const modelSpec = createModelSpec({ artifacts: true });
+@@ -242,4 +271,5 @@ describe('applyModelSpecEphemeralAgent', () => {
+         file_search: true,
+         memory: false,
++        skills: false,
+         artifacts: 'default',
+       });
 diff --git a/client/src/utils/endpoints.ts b/client/src/utils/endpoints.ts
 index b39fbdf..22a1c34 100644
 --- a/client/src/utils/endpoints.ts
