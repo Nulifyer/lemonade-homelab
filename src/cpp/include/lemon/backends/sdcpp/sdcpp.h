@@ -33,6 +33,7 @@ inline const BackendDescriptor descriptor = {
         {"width", "", 512, "SIZE", "Output image width", "Stable Diffusion Options"},
         {"height", "", 512, "SIZE", "Output image height", "Stable Diffusion Options"},
         {"sampling_method", "", "", "ARGS", "Sampling method", "Stable Diffusion Options"},
+        {"scheduler", "", "", "ARGS", "Noise scheduler", "Stable Diffusion Options"},
         {"flow_shift", "", 0.0, "SIZE", "Flow shift", "Stable Diffusion Options"},
     },
     /*support*/ {

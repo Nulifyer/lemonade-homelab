@@ -24,16 +24,24 @@ RUN git clone --recursive https://github.com/mudler/parakeet.cpp.git /src && cd 
 WORKDIR /src
 RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DPARAKEET_BUILD_SERVER=ON -DPARAKEET_BUILD_TESTS=ON && cmake --build build -j4 && ctest --test-dir build --output-on-failure -LE model && mkdir -p /out/bin /out/lib && cp build/examples/server/parakeet-server /out/bin/ && find build -name '*.so*' -exec cp -a '{}' /out/lib/ ';'
 
+FROM ubuntu:26.04 AS image-runtime
+ARG DEBIAN_FRONTEND=noninteractive
+COPY --from=hybrid-runtime /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+RUN sed -i 's|http://security.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g; s|http://archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources && apt-get -o Acquire::Retries=3 -o Acquire::https::CAInfo=/etc/ssl/certs/ca-certificates.crt update && apt-get -o Acquire::https::CAInfo=/etc/ssl/certs/ca-certificates.crt install -y --no-install-recommends curl unzip ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN curl --fail --location --retry 3 https://github.com/leejet/stable-diffusion.cpp/releases/download/master-843-462d675/sd-master-462d675-bin-Linux-Ubuntu-24.04-x86_64-vulkan.zip -o /tmp/sd.zip && printf '%s  %s\n' 366d8e59319a01f2f3a822b956fb29753983a7d4ada229cb682eec36a9496b40 /tmp/sd.zip | sha256sum -c - && mkdir -p /out && unzip -q /tmp/sd.zip -d /out && rm /tmp/sd.zip && /out/sd-server --version 2>&1 | grep -F 462d675
+
 FROM hybrid-runtime
 USER root
 ARG DEBIAN_FRONTEND=noninteractive
 ARG SOURCE_REVISION=unknown
 ARG SERVICE_VERSION=development
 LABEL org.opencontainers.image.source="https://github.com/Nulifyer/lemonade-homelab" org.opencontainers.image.revision="${SOURCE_REVISION}" org.opencontainers.image.version="${SERVICE_VERSION}" org.opencontainers.image.title="Lemonade AI service" org.opencontainers.image.description="Managed GPU/NPU models, inference APIs and English voice" org.opencontainers.image.documentation="https://github.com/Nulifyer/lemonade-homelab/blob/homelab-runtime/contrib/homelab/README.md"
+LABEL io.lemonade.sdcpp.version="master-843-462d675" io.lemonade.sdcpp.archive.sha256="366d8e59319a01f2f3a822b956fb29753983a7d4ada229cb682eec36a9496b40"
 RUN sed -i 's|http://security.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g; s|http://archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::https::CAInfo=/etc/ssl/certs/ca-certificates.crt -o APT::Update::Error-Mode=any update && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::https::CAInfo=/etc/ssl/certs/ca-certificates.crt -o APT::Update::Error-Mode=any install -y --no-install-recommends libcurl4t64 libdrm2 unzip xz-utils zstd libreadline8t64 && rm -rf /var/lib/apt/lists/* && mkdir -p /opt/lemonade/.config/lemonade /opt/lemonade/.cache/huggingface /opt/lemonade/.cache/lemonade /opt/lemonade/llama /opt/lemonade/kv /run/lemonade && chown -R 10001:10001 /opt/lemonade /run/lemonade
 COPY --from=manager-build /src/build/lemond /src/build/lemonade /opt/lemonade/
 COPY --from=manager-build /src/build/resources/ /opt/lemonade/resources/
 COPY --from=speech-build /out/ /opt/parakeet/
+COPY --from=image-runtime /out/ /opt/sdcpp/vulkan/
 COPY contrib/homelab/container-defaults.json /opt/lemonade/service-defaults.json
 COPY --chmod=755 contrib/homelab/vulkan-server /opt/llama/vulkan-server
 RUN printf '#!/bin/sh\nexport LD_LIBRARY_PATH=/opt/parakeet/lib\nexec /opt/parakeet/bin/parakeet-server "$@"\n' > /opt/parakeet/parakeet-server && chmod 755 /opt/parakeet/parakeet-server

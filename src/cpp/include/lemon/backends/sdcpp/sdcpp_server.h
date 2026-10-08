@@ -18,6 +18,9 @@ namespace backends {
 class SDServer : public WrappedServer, public IImageServer, public IUpscaleServer {
 public:
     static std::vector<std::string> build_model_args(const ModelInfo& model_info);
+    static nlohmann::json build_generation_params(const nlohmann::json& request,
+                                                  const RecipeOptions& options,
+                                                  bool include_flow_shift = true);
 
     static InstallParams get_install_params(const std::string& backend, const std::string& version);
 

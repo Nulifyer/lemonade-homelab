@@ -250,6 +250,26 @@ int main() {
               image_call["result"]["content"][1]["mimeType"] == "image/png" &&
               image_call["result"]["content"][1]["data"] == "cG5n",
           "MCP image block missing");
+    json sized_args;
+    auto sized_image = [&](const json &args) {
+        sized_args = args;
+        return image(args);
+    };
+    auto sized_call = [&](const json &args) {
+        return *lemon::consumer_mcp({{"jsonrpc", "2.0"}, {"id", 1},
+            {"method", "tools/call"}, {"params", {{"name", "generate_image"},
+                {"arguments", args}}}}, documents, read, sized_image);
+    };
+    check(!sized_call({{"prompt", "A cube"}, {"size", "512x768"}}).contains("error") &&
+              sized_args["size"] == "512x768",
+          "MCP dropped explicit image dimensions");
+    for (const auto &extra : {json{{"size", "4096x4096"}}, json{{"size", "600x600"}},
+                              json{{"size", 512}}, json{{"command", "stop"}},
+                              json{{"size", "512x512"}, {"unknown", true}}}) {
+        json args = {{"prompt", "A cube"}};
+        args.update(extra);
+        check(sized_call(args).contains("error"), "MCP accepted unbounded image arguments");
+    }
     const auto defaults = lemon::ConsumerConfig::defaults();
     check(defaults["critical_models"].size() == 3, "Wrong critical defaults");
     for (const json &input :
@@ -421,6 +441,17 @@ int main() {
               "Failed image job reported success");
     }
     auto disabled_dispatch = dispatch;
+    auto sized_dispatch = dispatch;
+    sized_dispatch["image_size"] = "768x512";
+    httplib::Response sized_dispatch_response;
+    service.handle(request("/v1/chat/completions", sized_dispatch), sized_dispatch_response);
+    check(sized_dispatch_response.status == 200 &&
+              json::parse(json::parse(sized_dispatch_response.body)["choices"][0]["message"]
+                              ["tool_calls"][0]["function"]["arguments"].get<std::string>())["size"] == "768x512",
+          "Image dispatch dropped client canvas size");
+    sized_dispatch["image_size"] = "4096x4096";
+    check(call("/v1/chat/completions", sized_dispatch) == 400,
+          "Image dispatch accepted an unbounded canvas");
     disabled_dispatch["tool_choice"] = "none";
     check(call("/v1/chat/completions", disabled_dispatch) == 400,
           "Image dispatcher accepted a disabled tool");
@@ -620,12 +651,13 @@ int main() {
                               {{"model", "image-generation"}, {"prompt", "A red teapot"},
                                {"negative_prompt", "blur"}, {"width", 512}, {"height", 512},
                                {"steps", 4}, {"cfg_scale", 1}, {"batch_size", 1},
-                               {"sampler_name", "euler"}});
+                               {"sampler_name", "ipndm"}, {"scheduler", "discrete"}});
     httplib::Response sd_response;
     images.handle(sd_request, sd_response);
     check(sd_response.status == 200 &&
               json::parse(sd_response.body)["images"] == json::array({"cG5n"}) &&
               image_captured["negative_prompt"] == "blur" && image_captured["cfg_scale"] == 1 &&
+              image_captured["sample_method"] == "ipndm" && image_captured["scheduler"] == "discrete" &&
               image_releases == 2,
           "SD API compatibility did not preserve the image policy and response");
     for (auto extra : {json{{"batch_size", 2}}, json{{"width", 4096}},
@@ -644,7 +676,7 @@ int main() {
     httplib::Response image_probe;
     images.handle(image_options, image_probe);
     check(image_probe.status == 204, "Image endpoint probe failed");
-    for (const auto &size : {"256x256", "512x512", "768x768", "1024x1024"}) {
+    for (const auto &size : {"256x256", "512x512", "768x768", "1024x1024", "512x768"}) {
         auto sized_manager = image_manager;
         sized_manager.invoke = [&](const std::string &, const auto &req, auto &res) {
             image_captured = json::parse(req.body);
@@ -657,6 +689,14 @@ int main() {
         sized.handle(image_request, output);
         check(output.status == 200 && image_captured["size"] == size,
               "Configured image resolution was not forwarded");
+        auto explicit_size = image_request;
+        auto explicit_size_body = json::parse(explicit_size.body);
+        explicit_size_body["size"] = "768x512";
+        explicit_size.body = explicit_size_body.dump();
+        httplib::Response explicit_output;
+        sized.handle(explicit_size, explicit_output);
+        check(explicit_output.status == 200 && image_captured["size"] == "768x512",
+              "Service default overrode explicit client dimensions");
         auto mismatch = image_request;
         auto body = json::parse(mismatch.body);
         body["size"] = "2048x2048";
@@ -666,7 +706,7 @@ int main() {
         check(rejected.status == 400,
               "Caller bypassed the configured resolution bound");
     }
-    for (const auto &size : {"0x0", "1024x512", "2048x2048", "8192x8192"})
+    for (const auto &size : {"0x0", "600x600", "0256x512", "2048x2048", "8192x8192"})
         invalid([&] { lemon::ConsumerConfig::parse({{"image_size", size}}); });
     auto model_default_manager = image_manager;
     int model_steps = 5;

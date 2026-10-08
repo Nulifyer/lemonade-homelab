@@ -4,6 +4,7 @@
 #include <optional>
 
 namespace lemon {
+bool valid_consumer_image_size(const nlohmann::json &size);
 // Bounded JSON-RPC dispatch. ConsumerService owns HTTP sessions and cancellation.
 std::optional<nlohmann::json> consumer_mcp(
     const nlohmann::json &message, const nlohmann::json &documents,

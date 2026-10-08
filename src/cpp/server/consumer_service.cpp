@@ -201,6 +201,8 @@ struct ImagePromptFailure : std::runtime_error {
 };
 void dispatch_image(const json &body, const std::string &id, httplib::Response &res,
                     const std::function<std::string(const std::string &)> &write_prompt = {}) {
+    if (body.contains("image_size") && !valid_consumer_image_size(body["image_size"]))
+        throw std::invalid_argument("Unsupported image size");
     const auto &messages = body.at("messages");
     const auto [user, assistant, result] = image_turn(messages);
     if (user == messages.size()) throw std::invalid_argument("An image prompt is required");
@@ -230,10 +232,12 @@ void dispatch_image(const json &body, const std::string &id, httplib::Response &
         if (tool_name.empty() || body.value("tool_choice", json("auto")) == "none")
             throw std::invalid_argument("Image tool must be enabled");
         if (write_prompt) prompt = write_prompt(prompt);
+        json arguments = {{"prompt", prompt}};
+        if (body.contains("image_size")) arguments["size"] = body["image_size"];
         message["tool_calls"] = json::array({{
             {"id", "image_" + id}, {"type", "function"},
             {"function", {{"name", tool_name},
-                          {"arguments", json{{"prompt", prompt}}.dump()}}}}});
+                          {"arguments", arguments.dump()}}}}});
         finish = "tool_calls";
     } else {
         const auto &calls = messages[assistant]["tool_calls"];
@@ -390,13 +394,9 @@ ConsumerConfig ConsumerConfig::parse(const json &input) {
         result["image_timeout_seconds"].get<int>() > 1800)
         throw std::invalid_argument(
             "image_timeout_seconds must be 1 through 1800");
-    if (!result["image_size"].is_string() ||
-        (result["image_size"] != "256x256" &&
-         result["image_size"] != "512x512" &&
-         result["image_size"] != "768x768" &&
-         result["image_size"] != "1024x1024"))
+    if (!valid_consumer_image_size(result["image_size"]))
         throw std::invalid_argument(
-            "image_size must be 256x256, 512x512, 768x768 or 1024x1024");
+            "Image dimensions must be 256 through 1024 in multiples of 64");
     if (!result["image_max_steps"].is_number_integer() ||
         result["image_max_steps"].get<int>() < 1 ||
         result["image_max_steps"].get<int>() > 8)
@@ -653,17 +653,17 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                 if (!fields.count(key)) throw std::invalid_argument("Unsupported image option");
             if (body.value("batch_size", json(1)) != 1)
                 throw std::invalid_argument("One image required");
-            if (body.contains("scheduler") && body["scheduler"] != "" && body["scheduler"] != "N/A")
-                throw std::invalid_argument("Use the model scheduler");
-            if (body.contains("sampler_name") && body["sampler_name"] != "" &&
-                body["sampler_name"] != "N/A" && body["sampler_name"] != "euler")
-                throw std::invalid_argument("Use the model sampler");
             const int width = body.value("width", 512), height = body.value("height", 512);
             json translated = {{"model", body.value("model", json("image-generation"))},
                                {"prompt", body.at("prompt")},
                                {"size", std::to_string(width) + "x" + std::to_string(height)}};
             for (const char *field : {"negative_prompt", "steps", "cfg_scale", "seed"})
                 if (body.contains(field)) translated[field] = body[field];
+            for (const auto &[input, output] : std::map<std::string, std::string>{
+                     {"sampler_name", "sample_method"}, {"scheduler", "scheduler"}}) {
+                if (body.contains(input) && body[input] != "" && body[input] != "N/A")
+                    translated[output] = body[input];
+            }
             httplib::Request mapped = req;
             mapped.path = "/v1/images/generations";
             mapped.body = translated.dump();
@@ -877,6 +877,8 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                     item["available"] = false;
                 }
                 if (role == "image-generation") {
+                    item["default_size"] = s.config.value["image_size"];
+                    item["size_limits"] = {{"min_dimension", 256}, {"max_dimension", 1024}, {"dimension_multiple", 64}};
                     item["interfaces"] = {"images/generations", "chat/completions"};
                     const auto prompt_model = s.config.value["image_prompt_model"].get<std::string>();
                     item["chat_mode"] = prompt_model.empty()
@@ -930,6 +932,10 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                         {"type", "string"}, {"enum", {"direct", "creative"}},
                         {"description", "For image-generation chat only. Creative uses the configured roleplay writer; direct sends user text unchanged."},
                         {"default", s.config.value["image_prompt_model"] == "" ? "direct" : "creative"}}}}}}})}};
+                schema["allOf"][1]["properties"]["image_size"] = {
+                    {"type", "string"},
+                    {"description", "For image-generation chat only. Explicit output WIDTHxHEIGHT; dimensions are 256 through 1024 in multiples of 64."},
+                    {"default", s.config.value["image_size"]}};
             }
             reply(res, 200, contract);
             return;
@@ -1092,7 +1098,7 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
             if (ep == "images/generations") {
                 static const std::set<std::string> fields = {
                     "model",           "prompt", "size", "n",
-                    "response_format", "steps",  "seed", "cfg_scale", "negative_prompt"};
+                    "response_format", "steps",  "seed", "cfg_scale", "negative_prompt", "sample_method", "scheduler"};
                 for (const auto &[key, value] : body.items())
                     if (!fields.count(key))
                         throw std::invalid_argument("Unsupported image option");
@@ -1105,12 +1111,19 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                     throw std::invalid_argument(
                         "Bounded plain image prompt required");
                 if (body.value("n", json(1)) != 1 ||
-                    body.value("response_format", json("b64_json")) !=
-                        "b64_json" ||
-                    body.value("size", s.config.value["image_size"]) !=
-                        s.config.value["image_size"])
+                    body.value("response_format", json("b64_json")) != "b64_json")
                     throw std::invalid_argument(
-                        "One fixed-size base64 image required");
+                        "One base64 image required");
+                const auto size = body.value("size", s.config.value["image_size"]);
+                if (!valid_consumer_image_size(size))
+                    throw std::invalid_argument("Unsupported image size");
+                const std::map<std::string, std::set<std::string>> sampling = {
+                    {"sample_method", {"euler", "euler_a", "heun", "dpm2", "dpm++2s_a", "dpm++2m", "dpm++2mv2", "ipndm", "ipndm_v", "lcm", "ddim_trailing", "tcd"}},
+                    {"scheduler", {"discrete", "karras", "exponential", "ays", "gits", "smoothstep", "sgm_uniform", "simple", "kl_optimal", "lcm", "beta"}}};
+                for (const auto &[field, supported] : sampling)
+                    if (body.contains(field) &&
+                        (!body[field].is_string() || !supported.count(body[field].get<std::string>())))
+                        throw std::invalid_argument("Unsupported image sampler or scheduler");
                 json steps = 4;
                 if (body.contains("steps")) {
                     steps = body["steps"];
@@ -1144,7 +1157,7 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                     throw std::invalid_argument("Bounded plain negative prompt required");
                 body["n"] = 1;
                 body["response_format"] = "b64_json";
-                body["size"] = s.config.value["image_size"];
+                body["size"] = size;
                 body["steps"] = steps;
             }
             if (s.config.value["presets"].contains(role) && ep != "/api/show") {

@@ -402,7 +402,7 @@ void SDServer::load(const std::string& model_name,
 
     LOG(INFO, "SDServer") << "Process started with PID: " << started_handle.pid << std::endl;
 
-    if (!wait_for_ready("/")) {
+    if (!wait_for_ready("/v1/models")) {
         unload();
         throw std::runtime_error("sd-server failed to start or become ready");
     }
@@ -420,6 +420,11 @@ void SDServer::unload() {
 }
 
 json SDServer::build_extra_args(const json& request, bool include_flow_shift) const {
+    return build_generation_params(request, recipe_options_, include_flow_shift);
+}
+
+json SDServer::build_generation_params(const json& request, const RecipeOptions& options,
+                                       bool include_flow_shift) {
     // sd-server reads these from inside <sd_cpp_extra_args>{...}</sd_cpp_extra_args>
     // in the prompt (via SDGenerationParams::from_json_str); top-level copies on
     // the HTTP body are ignored except for `size` / `n` / `prompt`. sd-cpp
@@ -451,10 +456,10 @@ json SDServer::build_extra_args(const json& request, bool include_flow_shift) co
         return fallback;
     };
     auto option_int = [&](const std::string& key) -> int {
-        return recipe_options_.has_option(key) ? static_cast<int>(recipe_options_.get_option(key)) : 0;
+        return options.has_option(key) ? static_cast<int>(options.get_option(key)) : 0;
     };
     auto option_string = [&](const std::string& key) -> std::string {
-        return recipe_options_.has_option(key) ? recipe_options_.get_option(key).get<std::string>() : "";
+        return options.has_option(key) ? options.get_option(key).get<std::string>() : "";
     };
 
     // steps -> sample_params.sample_steps
@@ -466,21 +471,23 @@ json SDServer::build_extra_args(const json& request, bool include_flow_shift) co
     // when it is absent from every layer so sd-server applies its own default.
     if (request.contains("cfg_scale") && request["cfg_scale"].is_number()) {
         guidance["txt_cfg"] = request["cfg_scale"].get<float>();
-    } else if (recipe_options_.has_option("cfg_scale")) {
-        guidance["txt_cfg"] = static_cast<float>(recipe_options_.get_option("cfg_scale"));
+    } else if (options.has_option("cfg_scale")) {
+        guidance["txt_cfg"] = static_cast<float>(options.get_option("cfg_scale"));
     }
 
     // sample_method -> sample_params.sample_method
     std::string sample_method = resolve_string("sample_method", option_string("sampling_method"));
     if (!sample_method.empty()) sample_params["sample_method"] = sample_method;
+    const auto scheduler = resolve_string("scheduler", option_string("scheduler"));
+    if (!scheduler.empty()) sample_params["scheduler"] = scheduler;
 
     // flow_shift -> sample_params.flow_shift
     // Like cfg_scale, 0.0 is a real value here; only omit when unset everywhere.
     if (include_flow_shift) {
         if (request.contains("flow_shift") && request["flow_shift"].is_number()) {
             sample_params["flow_shift"] = request["flow_shift"].get<float>();
-        } else if (recipe_options_.has_option("flow_shift")) {
-            sample_params["flow_shift"] = static_cast<float>(recipe_options_.get_option("flow_shift"));
+        } else if (options.has_option("flow_shift")) {
+            sample_params["flow_shift"] = static_cast<float>(options.get_option("flow_shift"));
         }
     }
 
@@ -494,10 +501,8 @@ json SDServer::build_extra_args(const json& request, bool include_flow_shift) co
     // seed stays top-level in from_json_str. Negative seeds mean "random" for
     // Lemonade, so generate a concrete seed instead of letting sd-server fall
     // back to its deterministic default.
-    if (request.contains("seed") && request["seed"].is_number_integer()) {
-        int seed = request["seed"].get<int>();
-        extra_args["seed"] = seed >= 0 ? seed : generate_random_seed();
-    }
+    const int seed = resolve_int("seed", -1);
+    extra_args["seed"] = seed >= 0 ? seed : generate_random_seed();
 
     return extra_args;
 }

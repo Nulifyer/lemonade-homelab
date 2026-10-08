@@ -42,6 +42,24 @@ int main() {
         failed = false;
         try { SDServer::build_model_args(info); } catch (...) { failed = true; }
         check(failed, "Incomplete managed auxiliary checkpoint accepted");
+        lemon::RecipeOptions options("sd-cpp", {{"steps", 8}, {"cfg_scale", 1.0},
+                                      {"sampling_method", "ipndm"}, {"scheduler", "beta"}});
+        const auto defaults = SDServer::build_generation_params({}, options);
+        check(defaults["sample_params"]["sample_steps"] == 8 &&
+                  defaults["sample_params"]["guidance"]["txt_cfg"] == 1.0 &&
+                  defaults["sample_params"]["sample_method"] == "ipndm" &&
+                  defaults["sample_params"]["scheduler"] == "beta" &&
+                  defaults["seed"].is_number_integer() && defaults["seed"].get<int>() >= 0,
+              "Saved image sampling defaults or automatic seed missing");
+        const auto explicit_params = SDServer::build_generation_params(
+            {{"steps", 6}, {"cfg_scale", 0.0}, {"sample_method", "euler"},
+             {"scheduler", "discrete"}, {"seed", 42}}, options);
+        check(explicit_params["sample_params"]["sample_steps"] == 6 &&
+                  explicit_params["sample_params"]["guidance"]["txt_cfg"] == 0.0 &&
+                  explicit_params["sample_params"]["sample_method"] == "euler" &&
+                  explicit_params["sample_params"]["scheduler"] == "discrete" &&
+                  explicit_params["seed"] == 42,
+              "Client image sampling values lost precedence");
         fs::remove_all(root);
         std::cout << "Managed diffusion checkpoint tests passed\n";
     } catch (...) {

@@ -232,10 +232,29 @@ stable-diffusion.cpp client in SillyTavern. This fixed protocol path is separate
 from the manager's versioned routes. It adapts to the same image-generation
 role, memory budget, single-job limit, timeout and runtime release policy as
 `/v1/images/generations`. The response contains a base64 `images` array.
-Use one 512-pixel image and the selected model's sampling configuration.
+The service defaults to one 512×512 image. Explicit client sizes override
+`consumer.image_size`; that setting is a fallback, not a fixed-size policy.
+Each dimension must be 256 through 1024 in multiples of 64. Portrait and
+landscape requests use the same bound. The image MCP tool accepts optional
+`size: "WIDTHxHEIGHT"`. Image chat dispatch accepts optional `image_size` and
+forwards it into the tool call without interpreting dimensions in prompt content.
 When `steps` is omitted, the consumer reads the selected model's effective
 recipe options, then its image defaults. Explicit caller steps take precedence.
 The same maximum-step bound applies to defaults and overrides. Legacy metadata
-without step settings retains the four-step fallback. The sampler and scheduler
-remain server-owned; leave client sampler and scheduler selections unset.
+without step settings retains the four-step fallback.
+Explicit supported `sampler_name` and `scheduler` selections take precedence
+over model defaults. Omitted, empty and `N/A` selections use model defaults.
+The adapter preserves actual names; it does not map Euler to iPNDM or discrete
+to beta. SillyTavern's sd.cpp mode offers iPNDM but omits beta from its hard-coded
+scheduler list. Its tested Chroma profile uses iPNDM/discrete, eight steps and
+CFG 1 at 512×512. Other clients can use the saved iPNDM/beta model preset.
 Other supported API controls remain bounded. The OPTIONS image probe is read-only.
+
+The homelab container includes the tested Linux Vulkan sd.cpp release
+`master-843-462d675` under `/opt/sdcpp/vulkan`. The build verifies the official
+archive SHA-256 and binary source identity. `sdcpp.vulkan_bin` selects that
+read-only runtime through the existing configuration contract. Persisted settings
+override image defaults, so update a saved `builtin` selection during migration.
+This keeps the runtime reproducible with the image and preserves existing runtime
+and model caches. OCI labels record the release and archive hash. Other platforms
+and backends keep their existing install configuration.

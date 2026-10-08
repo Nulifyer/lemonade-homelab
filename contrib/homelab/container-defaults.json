@@ -1,1 +1,1 @@
-{"consumer":{"enabled":true}}
+{"consumer":{"enabled":true},"sdcpp":{"vulkan_bin":"/opt/sdcpp/vulkan/sd-server"}}

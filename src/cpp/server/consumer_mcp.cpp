@@ -1,9 +1,20 @@
 #include "lemon/consumer_mcp.h"
 #include <map>
+#include <regex>
 #include <stdexcept>
 
 namespace lemon {
 using json = nlohmann::json;
+bool valid_consumer_image_size(const json &size) {
+    if (!size.is_string()) return false;
+    static const std::regex pattern("^([1-9][0-9]{2,3})x([1-9][0-9]{2,3})$");
+    std::smatch match;
+    const auto &text = size.get_ref<const std::string &>();
+    if (!std::regex_match(text, match, pattern)) return false;
+    const int width = std::stoi(match[1]), height = std::stoi(match[2]);
+    return width >= 256 && width <= 1024 && height >= 256 && height <= 1024 &&
+           width % 64 == 0 && height % 64 == 0;
+}
 std::optional<json>
 consumer_mcp(const json &message, const json &documents,
              const std::function<json(const std::string &)> &read,
@@ -72,15 +83,18 @@ consumer_mcp(const json &message, const json &documents,
                   {"additionalProperties", false}});
         if (image) {
             tool("generate_image",
-                 "Generate one 512-pixel image using the locally selected "
-                 "compact "
-                 "model. Describe the scene plainly; this can take a minute.",
+                 "Generate one image using the locally selected model. "
+                 "Size defaults to the service canvas when omitted. "
+                 "Describe the scene plainly; generation can take a minute.",
                  {{"type", "object"},
                   {"properties",
                    {{"prompt",
                      {{"type", "string"},
                       {"minLength", 1},
-                      {"maxLength", 2000}}}}},
+                      {"maxLength", 2000}}},
+                    {"size", {{"type", "string"},
+                              {"description", "Output WIDTHxHEIGHT. Each dimension is 256 through 1024 in multiples of 64."},
+                              {"pattern", "^(256|320|384|448|512|576|640|704|768|832|896|960|1024)x(256|320|384|448|512|576|640|704|768|832|896|960|1024)$"}}}}},
                   {"required", {"prompt"}},
                   {"additionalProperties", false}});
             tools.back()["annotations"]["readOnlyHint"] = false;
@@ -112,8 +126,10 @@ consumer_mcp(const json &message, const json &documents,
             throw std::invalid_argument("Invalid arguments");
         json value;
         if (image) {
-            if (name != "generate_image" || args.size() != 1 ||
-                !args.contains("prompt") || !args["prompt"].is_string())
+            if (name != "generate_image" || !args.contains("prompt") ||
+                !args["prompt"].is_string() || args.size() > 2 ||
+                (args.size() == 2 && !args.contains("size")) ||
+                (args.contains("size") && !valid_consumer_image_size(args["size"])))
                 return error(-32602, "Bounded image prompt required");
             auto generated = image(args);
             if (!generated.contains("data") || generated["data"].size() != 1)
