@@ -61,7 +61,7 @@ persistent aliases. They currently target HA Qwen 2B, Redux and Kokoro. Recovery
 uses saved recipe options and never downloads absent models. It restores missing
 or dead backends and pins an existing healthy backend without reloading it.
 Healthy includes `busy`. A failed role does not skip the other critical roles.
-Agent Qwen 27B and Skyfall remain on demand. Three LLM slots allow both alongside HA.
+Agent Qwen3.6 35B-A3B and Skyfall remain on demand. Three LLM slots allow both alongside HA.
 
 `consumer.presets` supplies missing sampling values. Explicit client fields win,
 including Ollama top-level options. Defaults are 256 output tokens for small
@@ -90,6 +90,25 @@ nonfinite samples and unsupported audio fail. Speech requests share Lemonade's
 backend handling. Disconnects during a synchronous Wyoming backend call close
 the session after that call returns; this is not an abort guarantee for speech.
 OpenAI cancellation remains in the existing manager handlers.
+
+## Direct image requests
+
+The consumer image alias also accepts OpenAI chat completions for clients that
+attach generated images through tools. Set `model: image-generation` and enable
+one `generate_image` tool, optionally with LibreChat's `_mcp_` name suffix.
+Lemonade forwards the latest user text as the tool's `prompt` without an LLM,
+rewriting, content classification or semantic refusal. Streaming emits standard
+OpenAI tool-call chunks. After the matching tool result, it confirms success or
+reports failure without submitting the job again. This mode accepts text image
+requests, not general conversation or image editing. The existing image job
+limits, cancellation, memory admission and backend cleanup still apply.
+
+Managed diffusion checkpoints use `main` plus optional `vae`, `text_encoder`
+for Qwen encoders, `t5xxl`, `clip_l` and `clip_g`. Split models require a VAE.
+Every declared component must exist before the adapter launches. These paths
+come from Lemonade's model cache and cannot be replaced through custom runtime
+arguments. Chroma therefore uses `--t5xxl`, while existing Qwen pipelines retain
+`--llm`. Bundled SDXL checkpoints retain `-m`.
 
 ## Build, tests and upstream updates
 

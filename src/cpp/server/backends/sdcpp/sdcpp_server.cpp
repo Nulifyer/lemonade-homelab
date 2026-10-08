@@ -18,6 +18,7 @@
 #include <chrono>
 #include <cstring>
 #include <random>
+#include <map>
 #include <sstream>
 #include <set>
 #include <lemon/utils/aixlog.hpp>
@@ -182,6 +183,34 @@ SDServer::~SDServer() {
     unload();
 }
 
+std::vector<std::string> SDServer::build_model_args(const ModelInfo& model_info) {
+    const std::map<std::string, std::string> flags = {
+        {"clip_g", "--clip_g"}, {"clip_l", "--clip_l"},
+        {"t5xxl", "--t5xxl"}, {"text_encoder", "--llm"}, {"vae", "--vae"}};
+    auto path_for = [&](const std::string& role) {
+        const auto path = model_info.resolved_path(role);
+        if (path.empty() || !fs::is_regular_file(path_from_utf8(path))) {
+            throw std::runtime_error("Missing model file for checkpoint role: " + role);
+        }
+        return path;
+    };
+    bool split = false;
+    for (const auto& [role, flag] : flags) {
+        if (role != "vae" && model_info.checkpoints.count(role)) split = true;
+    }
+    if (split && !model_info.checkpoints.count("vae")) {
+        throw std::runtime_error("Split diffusion models require a managed vae checkpoint");
+    }
+    std::vector<std::string> args = {split ? "--diffusion-model" : "-m", path_for("main")};
+    for (const auto& [role, flag] : flags) {
+        if (model_info.checkpoints.count(role)) {
+            args.push_back(flag);
+            args.push_back(path_for(role));
+        }
+    }
+    return args;
+}
+
 void SDServer::load(const std::string& model_name,
                     const ModelInfo& model_info,
                     const RecipeOptions& options,
@@ -209,23 +238,7 @@ void SDServer::load(const std::string& model_name,
 
     backend_manager_->install_backend(sdcpp::spec()->recipe, backend);
 
-    std::string model_path = model_info.resolved_path("main");
-    std::string llm_path = model_info.resolved_path("text_encoder");
-    std::string vae_path = model_info.resolved_path("vae");
-
-    if (model_path.empty()) {
-        throw std::runtime_error("Model file not found for checkpoint: " + model_info.checkpoint());
-    }
-
-    if (fs::is_directory(model_path)) {
-        throw std::runtime_error("Model path is a directory, not a file: " + model_path);
-    }
-
-    if (!fs::exists(model_path)) {
-        throw std::runtime_error("Model file does not exist: " + model_path);
-    }
-
-    LOG(DEBUG, "SDServer") << "Using model: " << model_path << std::endl;
+    const auto model_args = build_model_args(model_info);
 
     std::string exe_path = BackendUtils::get_backend_binary_path(*sdcpp::spec(), backend);
 
@@ -240,17 +253,7 @@ void SDServer::load(const std::string& model_name,
         "--listen-port", std::to_string(port_)
     };
 
-    if (llm_path.empty() || vae_path.empty()) {
-        args.push_back("-m");
-        args.push_back(model_path);
-    } else {
-        args.push_back("--diffusion-model");
-        args.push_back(model_path);
-        args.push_back("--llm");
-        args.push_back(llm_path);
-        args.push_back("--vae");
-        args.push_back(vae_path);
-    }
+    args.insert(args.end(), model_args.begin(), model_args.end());
 
     if (is_debug()) {
         args.push_back("-v");
@@ -268,6 +271,9 @@ void SDServer::load(const std::string& model_name,
         "--model",
         "--diffusion-model",
         "--llm",
+        "--t5xxl",
+        "--clip_l",
+        "--clip_g",
         "--vae",
         "-v",
         "--listen-port"

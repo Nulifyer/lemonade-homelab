@@ -365,6 +365,73 @@ int main() {
                                         {"temperature", 0.4},
                                         {"min_p", 0.1}}) == 200,
           "Chat rejected");
+    const auto llm_captured_path = captured_path;
+    const std::string exact_prompt = "  An adult art study; literal punctuation: \"red & blue\".\nSecond line.  ";
+    json dispatch = {{"model", "image-generation"},
+        {"messages", json::array({{{"role", "system"}, {"content", "Rewrite every prompt"}},
+                                   {{"role", "user"}, {"content", exact_prompt}}})}};
+    dispatch["tools"] = json::parse(R"([{"type":"function","function":{
+        "name":"generate_image_mcp_local-images","parameters":{
+        "type":"object","properties":{"prompt":{"type":"string"}}}}}])");
+    for (const auto &prefix : {"/api/v0/", "/api/v1/", "/v0/", "/v1/"}) {
+        captured_path.clear();
+        httplib::Response res;
+        service.handle(request(std::string(prefix) + "chat/completions", dispatch), res);
+        check(res.status == 200 && captured_path.empty(), "Image dispatch invoked a chat LLM");
+        const auto message = json::parse(res.body)["choices"][0]["message"];
+        const auto tool = message["tool_calls"][0];
+        check(json::parse(tool["function"]["arguments"].get<std::string>())["prompt"] == exact_prompt,
+              "Direct image prompt was rewritten or guarded");
+        auto done = dispatch;
+        done["messages"].push_back(message);
+        done["messages"].push_back({{"role", "tool"}, {"tool_call_id", tool["id"]},
+                                      {"content", "Image generated successfully. The image is attached."}});
+        httplib::Response completed;
+        service.handle(request(std::string(prefix) + "chat/completions", done), completed);
+        check(json::parse(completed.body)["choices"][0]["message"]["content"] == "Image ready.",
+              "Successful image tool result not completed");
+        done["messages"].back()["content"] = "Image generation failed";
+        httplib::Response failure;
+        service.handle(request(std::string(prefix) + "chat/completions", done), failure);
+        check(json::parse(failure.body)["choices"][0]["message"]["content"] != "Image ready.",
+              "Failed image job reported success");
+    }
+    auto disabled_dispatch = dispatch;
+    disabled_dispatch["tool_choice"] = "none";
+    check(call("/v1/chat/completions", disabled_dispatch) == 400,
+          "Image dispatcher accepted a disabled tool");
+    disabled_dispatch.erase("tools");
+    check(call("/v1/chat/completions", disabled_dispatch) == 400,
+          "Image dispatcher accepted a missing tool");
+    auto array_dispatch = dispatch;
+    array_dispatch["messages"].back()["content"] = json::array({{{"type", "text"}, {"text", exact_prompt}}});
+    httplib::Response array_response;
+    service.handle(request("/v1/chat/completions", array_dispatch), array_response);
+    check(array_response.status == 200 &&
+              json::parse(json::parse(array_response.body)["choices"][0]["message"]["tool_calls"][0]
+                            ["function"]["arguments"].get<std::string>())["prompt"] == exact_prompt,
+          "LangChain text block prompt changed");
+    auto ambiguous_dispatch = dispatch;
+    ambiguous_dispatch["tools"].push_back(dispatch["tools"][0]);
+    check(call("/v1/chat/completions", ambiguous_dispatch) == 400,
+          "Image dispatcher accepted ambiguous tools");
+    auto long_dispatch = dispatch;
+    long_dispatch["messages"].back()["content"] = std::string(2001, 'x');
+    check(call("/v1/chat/completions", long_dispatch) == 400,
+          "Image dispatcher accepted an oversized prompt");
+    auto stream_dispatch = dispatch;
+    stream_dispatch["stream"] = true;
+    httplib::Response stream_response;
+    service.handle(request("/v1/chat/completions", stream_dispatch), stream_response);
+    std::string sse;
+    httplib::DataSink sink;
+    sink.write = [&](const char* p, size_t n) { sse.append(p, n); return true; };
+    sink.done = [] {};
+    check(stream_response.status == 200 && stream_response.content_provider_(0, 0, sink) &&
+              sse.find("chat.completion.chunk") != std::string::npos &&
+              sse.find("data: [DONE]") != std::string::npos,
+          "Image tool SSE failed");
+    captured_path = llm_captured_path;
     int image_releases = 0;
     double headroom = 32;
     bool image_entered = false, image_continue = false;

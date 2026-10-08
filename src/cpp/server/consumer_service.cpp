@@ -127,6 +127,97 @@ json english_voices(const json &names) {
     }
     return list;
 }
+std::string message_text(const json &content) {
+    if (content.is_string()) return content.get<std::string>();
+    if (content.is_array() && content.size() == 1 &&
+        content[0].value("type", "") == "text" && content[0].contains("text"))
+        return content[0]["text"].get<std::string>();
+    throw std::invalid_argument("A single text image prompt is required");
+}
+void dispatch_image(const json &body, const std::string &id, httplib::Response &res) {
+    const auto &messages = body.at("messages");
+    if (!messages.is_array() || messages.empty() || messages.size() > 256)
+        throw std::invalid_argument("Bounded messages are required");
+    size_t user = messages.size();
+    for (size_t i = 0; i < messages.size(); ++i)
+        if (messages[i].value("role", "") == "user") user = i;
+    if (user == messages.size()) throw std::invalid_argument("An image prompt is required");
+    const auto prompt = message_text(messages[user].at("content"));
+    if (prompt.empty() || prompt.size() > 2000)
+        throw std::invalid_argument("Image prompt must contain 1 through 2000 bytes");
+    json message = {{"role", "assistant"}, {"content", nullptr}};
+    std::string finish = "stop";
+    if (user + 1 == messages.size()) {
+        std::string tool_name;
+        const auto &tools = body.at("tools");
+        if (!tools.is_array() || tools.size() > 64)
+            throw std::invalid_argument("Image tool is required");
+        for (const auto &tool : tools) {
+            if (tool.value("type", "") != "function") continue;
+            const auto &function = tool.at("function");
+            const auto name = function.value("name", "");
+            if (name != "generate_image" && name.rfind("generate_image_mcp_", 0) != 0)
+                continue;
+            if (!valid_id(name) || !tool_name.empty() ||
+                !function.at("parameters").at("properties").contains("prompt"))
+                throw std::invalid_argument("An unambiguous image tool is required");
+            tool_name = name;
+        }
+        if (tool_name.empty() || body.value("tool_choice", json("auto")) == "none")
+            throw std::invalid_argument("Image tool must be enabled");
+        message["tool_calls"] = json::array({{
+            {"id", "image_" + id}, {"type", "function"},
+            {"function", {{"name", tool_name},
+                          {"arguments", json{{"prompt", prompt}}.dump()}}}}});
+        finish = "tool_calls";
+    } else {
+        // Complete only a matching tool result; never replay a submitted image job.
+        if (messages.size() != user + 3 || messages[user + 1].value("role", "") != "assistant" ||
+            messages.back().value("role", "") != "tool")
+            throw std::invalid_argument("Expected one image tool result");
+        const auto &calls = messages[user + 1].at("tool_calls");
+        if (!calls.is_array() || calls.size() != 1 ||
+            calls[0].at("id") != messages.back().at("tool_call_id"))
+            throw std::invalid_argument("Image tool result ID mismatch");
+        const auto name = calls[0].at("function").value("name", "");
+        if (name != "generate_image" && name.rfind("generate_image_mcp_", 0) != 0)
+            throw std::invalid_argument("Unexpected image tool");
+        const auto content = messages.back().at("content");
+        const auto text = content.is_string() ? content.get<std::string>() : content.dump();
+        const bool success = text.find("Image generated successfully") != std::string::npos &&
+                             text.find("\"isError\":true") == std::string::npos;
+        message["content"] = success ? "Image ready." : "Image generation failed. Check the tool details.";
+    }
+    const auto created = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    json response = {{"id", "chatcmpl-" + id}, {"object", "chat.completion"},
+                     {"created", created}, {"model", "image-generation"},
+                     {"system_fingerprint", "lemonade-image-dispatch"},
+                     {"choices", json::array({{{"index", 0}, {"message", message},
+                                                {"finish_reason", finish}}})},
+                     {"usage", {{"prompt_tokens", 0}, {"completion_tokens", 0}, {"total_tokens", 0}}}};
+    if (!body.value("stream", false)) {
+        reply(res, 200, response);
+        return;
+    }
+    auto delta = message;
+    if (delta.contains("tool_calls")) delta["tool_calls"][0]["index"] = 0;
+    response["object"] = "chat.completion.chunk";
+    response.erase("usage");
+    response["choices"][0].erase("message");
+    response["choices"][0]["delta"] = delta;
+    response["choices"][0]["finish_reason"] = nullptr;
+    auto final = response;
+    final["choices"][0]["delta"] = json::object();
+    final["choices"][0]["finish_reason"] = finish;
+    const auto data = "data: " + response.dump() + "\n\ndata: " + final.dump() + "\n\ndata: [DONE]\n\n";
+    res.status = 200;
+    res.set_chunked_content_provider("text/event-stream", [data](size_t, httplib::DataSink &sink) {
+        const auto ok = sink.write(data.data(), data.size());
+        sink.done();
+        return ok;
+    });
+}
 bool healthy(const json &model) {
     const auto health = model.value("backend_health", "");
     return model.value("loaded", false) && model.value("backend_alive", false) &&
@@ -716,6 +807,11 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                 } catch (...) {
                     item["available"] = false;
                 }
+                if (role == "image-generation") {
+                    item["interfaces"] = {"images/generations", "chat/completions"};
+                    item["chat_mode"] = "deterministic_image_tool_dispatch";
+                    item["prompt_passthrough"] = true;
+                }
                 if (ep == "/api/tags") {
                     item["name"] = role + ":latest";
                     item["model"] = role + ":latest";
@@ -842,6 +938,14 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
             role = normalize(body["model"].get<std::string>());
             if (!purposes.count(role)) {
                 reject(res, 403, "Model not allowed");
+                return;
+            }
+            if (ep == "chat/completions" && role == "image-generation") {
+                dispatch_image(body, id, res);
+                ++s.requests;
+                std::cerr << json{{"event", "consumer_image_dispatch"},
+                                  {"request_id", id}, {"upstream_llm", false}}
+                                 .dump() << '\n';
                 return;
             }
             if ((ep == "audio/speech" && role != "speech-tts") ||

@@ -10,12 +10,15 @@
 #include "lemon/backends/backend_utils.h"
 #include <string>
 #include <filesystem>
+#include <vector>
 
 namespace lemon {
 namespace backends {
 
 class SDServer : public WrappedServer, public IImageServer, public IUpscaleServer {
 public:
+    static std::vector<std::string> build_model_args(const ModelInfo& model_info);
+
     static InstallParams get_install_params(const std::string& backend, const std::string& version);
 
 
