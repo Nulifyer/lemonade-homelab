@@ -459,6 +459,45 @@ int main() {
     httplib::Response image_probe;
     images.handle(image_options, image_probe);
     check(image_probe.status == 204, "Image endpoint probe failed");
+    auto model_default_manager = image_manager;
+    int model_steps = 5;
+    model_default_manager.metadata = [&](const std::string &) {
+        return json{{"recipe_options", {{"steps", model_steps}}},
+                    {"image_defaults", {{"steps", 3}}}};
+    };
+    model_default_manager.invoke = [&](const std::string &, const auto &req, auto &res) {
+        image_captured = json::parse(req.body);
+        res.status = 200;
+        res.set_content("{\"data\":[{\"b64_json\":\"cG5n\"}]}", "application/json");
+    };
+    ConsumerService model_defaults(lemon::ConsumerConfig::parse(json::object()),
+                                   model_default_manager);
+    httplib::Response selected_default;
+    model_defaults.handle(image_request, selected_default);
+    check(selected_default.status == 200 && image_captured["steps"] == 5,
+          "Image API did not use the selected model's effective steps");
+    auto explicit_steps = image_request;
+    auto explicit_body = json::parse(explicit_steps.body);
+    explicit_body["steps"] = 4;
+    explicit_steps.body = explicit_body.dump();
+    httplib::Response selected_override;
+    model_defaults.handle(explicit_steps, selected_override);
+    check(selected_override.status == 200 && image_captured["steps"] == 4,
+          "Image API overwrote explicit caller steps");
+    model_steps = 9;
+    httplib::Response unbounded_default;
+    model_defaults.handle(image_request, unbounded_default);
+    check(unbounded_default.status == 400,
+          "Model defaults bypassed the consumer image step limit");
+    model_default_manager.metadata = [](const std::string &) {
+        return json{{"image_defaults", {{"steps", 3}}}};
+    };
+    ConsumerService image_defaults(lemon::ConsumerConfig::parse(json::object()),
+                                   model_default_manager);
+    httplib::Response selected_image_default;
+    image_defaults.handle(image_request, selected_image_default);
+    check(selected_image_default.status == 200 && image_captured["steps"] == 3,
+          "Image API ignored model image_defaults when recipe steps were absent");
     check(captured["temperature"] == 0.4 && captured["min_p"] == 0.1 &&
               captured["max_tokens"] == 256,
           "Explicit sampling overwritten");

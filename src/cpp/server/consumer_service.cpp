@@ -869,7 +869,18 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                         s.config.value["image_size"])
                     throw std::invalid_argument(
                         "One fixed-size base64 image required");
-                const auto steps = body.value("steps", json(4));
+                json steps = 4;
+                if (body.contains("steps")) {
+                    steps = body["steps"];
+                } else if (s.manager.metadata) {
+                    const auto model = s.manager.metadata(role);
+                    const auto options = model.value("recipe_options", json::object());
+                    const auto defaults = model.value("image_defaults", json::object());
+                    if (options.contains("steps"))
+                        steps = options["steps"];
+                    else if (defaults.contains("steps"))
+                        steps = defaults["steps"];
+                }
                 if (!steps.is_number_integer() || steps.get<int>() < 1 ||
                     steps.get<int>() >
                         s.config.value["image_max_steps"].get<int>())

@@ -196,5 +196,10 @@ stable-diffusion.cpp client in SillyTavern. This fixed protocol path is separate
 from the manager's versioned routes. It adapts to the same image-generation
 role, memory budget, single-job limit, timeout and runtime release policy as
 `/v1/images/generations`. The response contains a base64 `images` array.
-Use one 512-pixel image, four steps, CFG 1, the model's scheduler and Euler.
+Use one 512-pixel image and the selected model's sampling configuration.
+When `steps` is omitted, the consumer reads the selected model's effective
+recipe options, then its image defaults. Explicit caller steps take precedence.
+The same maximum-step bound applies to defaults and overrides. Legacy metadata
+without step settings retains the four-step fallback. The sampler and scheduler
+remain server-owned; leave client sampler and scheduler selections unset.
 Other supported API controls remain bounded. The OPTIONS image probe is read-only.
