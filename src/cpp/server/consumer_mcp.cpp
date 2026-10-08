@@ -122,9 +122,14 @@ consumer_mcp(const json &message, const json &documents,
                 generated["data"][0].at("b64_json").get<std::string>();
             if (data.empty() || data.size() > 8 * 1024 * 1024)
                 throw std::runtime_error("Image response exceeded limit");
-            return result({{"content", json::array({{{"type", "image"},
-                                                     {"mimeType", "image/png"},
-                                                     {"data", data}}})},
+            return result({{"content", json::array({
+                                           {{"type", "text"},
+                                            {"text", "Image generated successfully. "
+                                                     "The image is attached to this "
+                                                     "tool result."}},
+                                           {{"type", "image"},
+                                            {"mimeType", "image/png"},
+                                            {"data", data}}})},
                            {"isError", false}});
         }
         if (name == "read_runbook" && args.size() == 1 &&

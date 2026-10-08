@@ -240,7 +240,15 @@ int main() {
          {"params",
           {{"name", "generate_image"}, {"arguments", {{"prompt", "A cube"}}}}}},
         documents, read, image);
-    check(image_call["result"]["content"][0]["type"] == "image",
+    check(image_call["result"]["content"].size() == 2 &&
+              image_call["result"]["content"][0]["type"] == "text" &&
+              image_call["result"]["content"][0]["text"].get<std::string>().find(
+                  "Image generated successfully") != std::string::npos &&
+              !image_call["result"]["isError"].get<bool>(),
+          "MCP image result must tell text-only tool planners it succeeded");
+    check(image_call["result"]["content"][1]["type"] == "image" &&
+              image_call["result"]["content"][1]["mimeType"] == "image/png" &&
+              image_call["result"]["content"][1]["data"] == "cG5n",
           "MCP image block missing");
     const auto defaults = lemon::ConsumerConfig::defaults();
     check(defaults["critical_models"].size() == 3, "Wrong critical defaults");
