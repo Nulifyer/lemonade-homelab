@@ -17,6 +17,8 @@
 namespace lemon {
 using json = nlohmann::json;
 namespace {
+constexpr double image_prompt_default_temperature = 0.3;
+constexpr int image_prompt_max_tokens = 1024;
 const std::map<std::string, std::string> purposes = {
     {"small-task", "Home Assistant and small general tasks"},
     {"agent-work", "Research, coding and general tasks"},
@@ -317,19 +319,22 @@ json ConsumerConfig::defaults() {
             {"image_min_available_gib", 12},
             {"image_prompt_model", ""},
             {"image_prompt_instructions",
-             "Expand the supplied scene into a concrete image prompt for one still image. "
-             "Treat the supplied facts as constraints. Preserve the background, location, time, weather, "
-             "character count, each character's gender, age, species, appearance, clothing and accessories. "
-             "Keep each attribute and action attached to the correct character. Preserve poses, who is doing "
-             "what to whom, relative positions, held objects and the intent of the moment. Convey that intent "
-             "through the stated expressions, body language and atmosphere. Preserve requested style, framing "
-             "and exclusions. For roleplay context, use the latest explicit scene and clothing state; use "
-             "earlier character descriptions only for details that have not changed. Describe current visible "
-             "state rather than the history of earlier outfits or locations. Do not advance the story, recap "
-             "multiple moments, change outfits or gender, add characters, or replace the intended action. "
-             "Do not guess unspecified identity details. Add compatible lighting, composition and material "
-             "details only where unspecified. Required scene and character facts take priority over decoration. "
-             "Use clear natural-language descriptions rather than names alone. Do not invent text or signatures."},
+             "Translate the supplied scene into one complete image prompt for one still frame. Start by describing "
+             "EVERY character actually present. For EACH character, explicitly include all supplied identity and "
+             "appearance details: gender, stated age, species, hair, eyes, physical features, current clothing and "
+             "accessories. Attach each attribute, pose, expression, held object and action to the correct "
+             "character. Include who acts on whom, the stated relative positions and the exact number of "
+             "characters. Keep all supplied action and character details before optional decoration. A scene with "
+             "characters must never become a background-only image. Then describe the established location, "
+             "background, time, weather, relevant objects and requested visual style or framing. Preserve the "
+             "intent of the moment through the stated expressions, body language and atmosphere. Do not replace an "
+             "action with a posed portrait or advance the story. Use the latest explicit scene and outfit state. "
+             "Older character descriptions supply only unchanged details. The finished prompt describes the "
+             "current visible state, not past outfits, previous locations or the transition between them. Preserve "
+             "explicit exclusions. Do not invent identity details, extra characters, text or signatures. Add "
+             "compatible lighting, composition and material detail only where unspecified, after every required "
+             "scene fact is included. Return a complete usable prompt, not an example, summary, partial "
+             "description or commentary."},
             {"critical_models", {"small-task", "speech-stt", "speech-tts"}},
             {"public_url", "http://localhost:8080"},
             {"chat_url", ""},
@@ -930,6 +935,11 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                         ? "deterministic_image_tool_dispatch" : "creative_image_tool_dispatch";
                     item["chat_modes"] = prompt_model.empty() ? json({"direct"}) : json({"direct", "creative"});
                     item["prompt_model"] = prompt_model;
+                    if (!prompt_model.empty()) {
+                        item["prompt_defaults"] = s.config.value["presets"][prompt_model];
+                        item["prompt_defaults"]["temperature"] = image_prompt_default_temperature;
+                        item["prompt_defaults"]["max_tokens"] = image_prompt_max_tokens;
+                    }
                     item["prompt_passthrough"] = true;
                     item["chat_prompt_passthrough"] = prompt_model.empty();
                 }
@@ -1094,7 +1104,8 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                 bool planned = false;
                 std::function<std::string(const std::string &)> write_prompt;
                 if (mode == "creative") write_prompt = [&](const std::string &prompt) {
-                    json plan = {{"model", prompt_model}, {"stream", false}, {"max_tokens", 1024},
+                    json plan = {{"model", prompt_model}, {"stream", false}, {"max_tokens", image_prompt_max_tokens},
+                        {"temperature", body.value("temperature", json(image_prompt_default_temperature))},
                         {"messages", json::array({
                             {{"role", "system"}, {"content",
                                 s.config.value["image_prompt_instructions"].get<std::string>() +
@@ -1105,6 +1116,9 @@ void ConsumerService::handle(const httplib::Request &req, httplib::Response &res
                             {"name", "image_prompt"}, {"strict", true}, {"schema", {
                                 {"type", "object"}, {"properties", {{"prompt", {{"type", "string"}, {"maxLength", 6000}}}}},
                                 {"required", {"prompt"}}, {"additionalProperties", false}}}}}}}};
+                    for (const auto &key : {"top_p", "top_k", "min_p", "repeat_penalty",
+                                            "presence_penalty", "frequency_penalty"})
+                        if (body.contains(key)) plan[key] = body[key];
                     auto planner_request = req;
                     planner_request.path = "/v1/chat/completions";
                     planner_request.body = plan.dump();

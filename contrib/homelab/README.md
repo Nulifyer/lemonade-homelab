@@ -98,10 +98,14 @@ attach generated images through tools. Set `model: image-generation` and enable
 one `generate_image` tool, optionally with LibreChat's `_mcp_` name suffix.
 By default, Lemonade forwards the latest user text as the tool's `prompt` without
 an LLM. Set `consumer.image_prompt_model: chat-roleplay` to enable the creative
-writer. It uses the roleplay alias, its sampling defaults, a structured JSON
+writer. It uses the roleplay alias, a structured JSON
 response and a 1,024-token output limit. The writer produces the prompt only.
 Lemonade constructs the tool call itself. It does not require the writer to
 support tool calls or vision. No HA or agent LLM participates.
+Writer temperature defaults to 0.3 independently of roleplay chat. Explicit chat
+request sampling fields override writer defaults. Other omitted sampling fields
+use the roleplay preset. The writer output budget remains separate from the
+client's synthetic tool-call response budget.
 
 `consumer.image_prompt_instructions` supplies the writer's editable instructions.
 The default preserves scene, character identity, gender, clothing, actions,

@@ -526,6 +526,7 @@ int main() {
     std::string planner_finish = "stop";
     json planner_content = {{"prompt", "Creative fox watercolor on textured paper"}};
     std::string writer_instructions = defaults["image_prompt_instructions"];
+    double writer_temperature = 0.3, writer_top_p = 0.95;
     auto prompt_manager = manager;
     prompt_manager.invoke = [&](const std::string &path, const auto &req, auto &res) {
         ++prompt_writes;
@@ -536,7 +537,8 @@ int main() {
                   body["messages"][0]["content"].get<std::string>().rfind(writer_instructions + "\n", 0) == 0 &&
                   body["messages"][0]["content"].get<std::string>().find("Return only a JSON object") != std::string::npos &&
                   body["messages"][1]["content"] == exact_prompt &&
-                  body["min_p"] == 0.05 && body["top_k"] == 0,
+                  body["min_p"] == 0.05 && body["top_k"] == 0 &&
+                  body["temperature"] == writer_temperature && body["top_p"] == writer_top_p,
               "Creative image prompt did not use the bounded roleplay writer and its sampling defaults");
         res.status = planner_status;
         res.set_content(json{{"choices", json::array({{
@@ -596,6 +598,14 @@ int main() {
                 ["function"]["arguments"].get<std::string>())["prompt"] == planner_content["prompt"] &&
               custom_writer.configuration()["image_prompt_instructions"] == writer_instructions,
           "Configured writer instructions or detailed scene prompt were lost");
+    auto custom_sampling = dispatch;
+    custom_sampling["temperature"] = writer_temperature = 0.6;
+    custom_sampling["top_p"] = writer_top_p = 0.8;
+    httplib::Response sampled_prompt;
+    custom_writer.handle(request("/v1/chat/completions", custom_sampling), sampled_prompt);
+    check(sampled_prompt.status == 200, "Image writer lost caller sampling overrides");
+    writer_temperature = 0.3;
+    writer_top_p = 0.95;
     planner_content = {{"prompt", std::string(6001, 'x')}};
     httplib::Response oversized_prompt;
     custom_writer.handle(request("/v1/chat/completions", dispatch), oversized_prompt);
@@ -627,7 +637,10 @@ int main() {
     for (const auto &model : creative_models["data"])
         if (model["id"] == "image-generation")
             check(model["prompt_model"] == "chat-roleplay" && model["prompt_passthrough"] == true &&
-                      model["chat_prompt_passthrough"] == false && model["chat_modes"].size() == 2,
+                      model["chat_prompt_passthrough"] == false && model["chat_modes"].size() == 2 &&
+                      model["prompt_defaults"]["temperature"] == 0.3 &&
+                      model["prompt_defaults"]["max_tokens"] == 1024 &&
+                      creative.configuration()["presets"]["chat-roleplay"]["temperature"] == 1,
                   "Creative and direct image capabilities were ambiguous");
     httplib::Response creative_openapi;
     creative.handle(request("/openapi.json"), creative_openapi);
