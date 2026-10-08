@@ -2,29 +2,24 @@ diff --git a/client/src/hooks/Agents/useApplyModelSpecAgents.ts b/client/src/hoo
 index 3b33968..e0bb6c8 100644
 --- a/client/src/hooks/Agents/useApplyModelSpecAgents.ts
 +++ b/client/src/hooks/Agents/useApplyModelSpecAgents.ts
-@@ -100,6 +100,8 @@ export function useApplyAgentTemplate() {
-         ...ephemeralAgent,
+@@ -101,4 +101,6 @@ export function useApplyAgentTemplate() {
          mcp: [...(ephemeralAgent?.mcp ?? []), ...(modelSpec.mcpServers ?? [])],
          web_search: ephemeralAgent?.web_search ?? modelSpec.webSearch ?? false,
 +        skills:
 +          ephemeralAgent?.skills ?? (modelSpec.skills === true || Array.isArray(modelSpec.skills)),
          file_search: ephemeralAgent?.file_search ?? modelSpec.fileSearch ?? false,
          execute_code: ephemeralAgent?.execute_code ?? modelSpec.executeCode ?? false,
-         artifacts:
 diff --git a/client/src/utils/__tests__/applyModelSpecEphemeralAgent.test.ts b/client/src/utils/__tests__/applyModelSpecEphemeralAgent.test.ts
 index a13c11e..ef1f1bc 100644
 --- a/client/src/utils/__tests__/applyModelSpecEphemeralAgent.test.ts
 +++ b/client/src/utils/__tests__/applyModelSpecEphemeralAgent.test.ts
-@@ -65,6 +65,7 @@ describe('applyModelSpecEphemeralAgent', () => {
-         web_search: false,
+@@ -66,4 +66,5 @@ describe('applyModelSpecEphemeralAgent', () => {
          file_search: true,
          memory: false,
 +        skills: false,
          artifacts: 'default',
        });
-     });
-@@ -114,6 +115,34 @@ describe('applyModelSpecEphemeralAgent', () => {
-       expect((updateEphemeralAgent.mock.calls[0][1] as TEphemeralAgent).memory).toBe(false);
+@@ -115,4 +116,32 @@ describe('applyModelSpecEphemeralAgent', () => {
      });
 
 +    it('enables the Skills switch from a model spec and respects existing Off choices', () => {
@@ -57,33 +52,27 @@ index a13c11e..ef1f1bc 100644
 +
      it('should map artifacts: true to "default" string', () => {
        const modelSpec = createModelSpec({ artifacts: true });
-
 diff --git a/client/src/utils/endpoints.ts b/client/src/utils/endpoints.ts
 index b39fbdf..22a1c34 100644
 --- a/client/src/utils/endpoints.ts
 +++ b/client/src/utils/endpoints.ts
-@@ -349,6 +349,7 @@ export function applyModelSpecEphemeralAgent({
-   const agent: t.TEphemeralAgent = {
+@@ -350,4 +350,5 @@ export function applyModelSpecEphemeralAgent({
      mcp: modelSpec.mcpServers ?? [],
      web_search: modelSpec.webSearch ?? false,
 +    skills: modelSpec.skills === true || Array.isArray(modelSpec.skills),
      file_search: modelSpec.fileSearch ?? false,
      execute_code: modelSpec.executeCode ?? false,
-     memory: modelSpec.memory ?? false,
-@@ -365,6 +366,7 @@ export function applyModelSpecEphemeralAgent({
-       ['file_search', LocalStorageKeys.LAST_FILE_SEARCH_TOGGLE_],
+@@ -366,4 +367,5 @@ export function applyModelSpecEphemeralAgent({
        ['artifacts', LocalStorageKeys.LAST_ARTIFACTS_TOGGLE_],
        ['memory', LocalStorageKeys.LAST_MEMORY_TOGGLE_],
 +      ['skills', LocalStorageKeys.LAST_SKILLS_TOGGLE_],
      ];
 
-     for (const [toolKey, storagePrefix] of toolStorageMap) {
 diff --git a/packages/api/src/agents/load.spec.ts b/packages/api/src/agents/load.spec.ts
 index 4862085..5f63a2b 100644
 --- a/packages/api/src/agents/load.spec.ts
 +++ b/packages/api/src/agents/load.spec.ts
-@@ -100,3 +100,36 @@ describe('loadEphemeralAgent → resolveSender parity', () => {
-     expect(sender).toBe(parseEphemeralAgentId(agent?.id ?? '')?.sender);
+@@ -101,2 +101,35 @@ describe('loadEphemeralAgent → resolveSender parity', () => {
    });
  });
 +
@@ -123,17 +112,14 @@ diff --git a/packages/api/src/agents/load.ts b/packages/api/src/agents/load.ts
 index 7ae1633..959a591 100644
 --- a/packages/api/src/agents/load.ts
 +++ b/packages/api/src/agents/load.ts
-@@ -108,7 +108,7 @@ export async function loadEphemeralAgent(
-   if (ephemeralAgent?.file_search === true || modelSpec?.fileSearch === true) {
+@@ -109,5 +109,5 @@ export async function loadEphemeralAgent(
      tools.push(Tools.file_search);
    }
 -  if (ephemeralAgent?.web_search === true || modelSpec?.webSearch === true) {
 +  if ((ephemeralAgent?.web_search ?? modelSpec?.webSearch) === true) {
      tools.push(Tools.web_search);
    }
-   if (ephemeralAgent?.memory === true || modelSpec?.memory === true) {
-@@ -220,6 +220,11 @@ export async function loadEphemeralAgent(
-       result.skills = [];
+@@ -221,4 +221,9 @@ export async function loadEphemeralAgent(
      }
    }
 +  // Model-spec skills are defaults; a conversation's explicit Off choice wins.
@@ -143,4 +129,3 @@ index 7ae1633..959a591 100644
 +  }
    return result as Agent;
  }
-
