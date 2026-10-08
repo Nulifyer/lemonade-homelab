@@ -2,25 +2,20 @@ diff --git a/client/src/hooks/Agents/useApplyModelSpecAgents.ts b/client/src/hoo
 index 3b33968..e0bb6c8 100644
 --- a/client/src/hooks/Agents/useApplyModelSpecAgents.ts
 +++ b/client/src/hooks/Agents/useApplyModelSpecAgents.ts
-@@ -101,4 +101,6 @@ export function useApplyAgentTemplate() {
-         mcp: [...(ephemeralAgent?.mcp ?? []), ...(modelSpec.mcpServers ?? [])],
+@@ -102,2 +102,4 @@ export function useApplyAgentTemplate() {
          web_search: ephemeralAgent?.web_search ?? modelSpec.webSearch ?? false,
 +        skills:
 +          ephemeralAgent?.skills ?? (modelSpec.skills === true || Array.isArray(modelSpec.skills)),
          file_search: ephemeralAgent?.file_search ?? modelSpec.fileSearch ?? false,
-         execute_code: ephemeralAgent?.execute_code ?? modelSpec.executeCode ?? false,
 diff --git a/client/src/utils/__tests__/applyModelSpecEphemeralAgent.test.ts b/client/src/utils/__tests__/applyModelSpecEphemeralAgent.test.ts
 index a13c11e..c99ad89 100644
 --- a/client/src/utils/__tests__/applyModelSpecEphemeralAgent.test.ts
 +++ b/client/src/utils/__tests__/applyModelSpecEphemeralAgent.test.ts
-@@ -66,4 +66,5 @@ describe('applyModelSpecEphemeralAgent', () => {
-         file_search: true,
+@@ -67,2 +67,3 @@ describe('applyModelSpecEphemeralAgent', () => {
          memory: false,
 +        skills: false,
          artifacts: 'default',
-       });
-@@ -115,4 +116,32 @@ describe('applyModelSpecEphemeralAgent', () => {
-     });
+@@ -116,2 +117,30 @@ describe('applyModelSpecEphemeralAgent', () => {
 
 +    it('enables the Skills switch from a model spec and respects existing Off choices', () => {
 +      const modelSpec = createModelSpec({ skills: true, webSearch: true });
@@ -51,35 +46,27 @@ index a13c11e..c99ad89 100644
 +    });
 +
      it('should map artifacts: true to "default" string', () => {
-       const modelSpec = createModelSpec({ artifacts: true });
-@@ -242,4 +271,5 @@ describe('applyModelSpecEphemeralAgent', () => {
-         file_search: true,
+@@ -243,2 +272,3 @@ describe('applyModelSpecEphemeralAgent', () => {
          memory: false,
 +        skills: false,
          artifacts: 'default',
-       });
 diff --git a/client/src/utils/endpoints.ts b/client/src/utils/endpoints.ts
 index b39fbdf..22a1c34 100644
 --- a/client/src/utils/endpoints.ts
 +++ b/client/src/utils/endpoints.ts
-@@ -350,4 +350,5 @@ export function applyModelSpecEphemeralAgent({
-     mcp: modelSpec.mcpServers ?? [],
+@@ -351,2 +351,3 @@ export function applyModelSpecEphemeralAgent({
      web_search: modelSpec.webSearch ?? false,
 +    skills: modelSpec.skills === true || Array.isArray(modelSpec.skills),
      file_search: modelSpec.fileSearch ?? false,
-     execute_code: modelSpec.executeCode ?? false,
-@@ -366,4 +367,5 @@ export function applyModelSpecEphemeralAgent({
-       ['artifacts', LocalStorageKeys.LAST_ARTIFACTS_TOGGLE_],
+@@ -367,2 +368,3 @@ export function applyModelSpecEphemeralAgent({
        ['memory', LocalStorageKeys.LAST_MEMORY_TOGGLE_],
 +      ['skills', LocalStorageKeys.LAST_SKILLS_TOGGLE_],
      ];
-
 diff --git a/packages/api/src/agents/load.spec.ts b/packages/api/src/agents/load.spec.ts
 index 4862085..5f63a2b 100644
 --- a/packages/api/src/agents/load.spec.ts
 +++ b/packages/api/src/agents/load.spec.ts
-@@ -101,2 +101,35 @@ describe('loadEphemeralAgent → resolveSender parity', () => {
-   });
+@@ -102 +102,34 @@ describe('loadEphemeralAgent → resolveSender parity', () => {
  });
 +
 +
@@ -118,15 +105,12 @@ diff --git a/packages/api/src/agents/load.ts b/packages/api/src/agents/load.ts
 index 7ae1633..959a591 100644
 --- a/packages/api/src/agents/load.ts
 +++ b/packages/api/src/agents/load.ts
-@@ -109,5 +109,5 @@ export async function loadEphemeralAgent(
-     tools.push(Tools.file_search);
+@@ -110,3 +110,3 @@ export async function loadEphemeralAgent(
    }
 -  if (ephemeralAgent?.web_search === true || modelSpec?.webSearch === true) {
 +  if ((ephemeralAgent?.web_search ?? modelSpec?.webSearch) === true) {
      tools.push(Tools.web_search);
-   }
-@@ -221,4 +221,9 @@ export async function loadEphemeralAgent(
-     }
+@@ -222,2 +222,7 @@ export async function loadEphemeralAgent(
    }
 +  // Model-spec skills are defaults; a conversation's explicit Off choice wins.
 +  if (ephemeralAgent?.skills === false) {
@@ -134,4 +118,30 @@ index 7ae1633..959a591 100644
 +    result.skills = [];
 +  }
    return result as Agent;
- }
+diff --git a/packages/api/src/modelSpecs/index.ts b/packages/api/src/modelSpecs/index.ts
+index 72c4f28..de21411 100644
+--- a/packages/api/src/modelSpecs/index.ts
++++ b/packages/api/src/modelSpecs/index.ts
+@@ -254,3 +254,6 @@ export function sanitizeModelSpecs<T extends Partial<TSpecsConfig> | null | unde
+       const sanitizedModelSpec = { ...modelSpec };
+-      delete (sanitizedModelSpec as { skills?: unknown }).skills;
++      // Expose only the UI default; configured skill identities stay server-side.
++      if (Array.isArray(sanitizedModelSpec.skills)) {
++        sanitizedModelSpec.skills = true;
++      }
+       const subagents = sanitizedModelSpec.subagents;
+diff --git a/packages/api/src/modelSpecs/modelSpecs.test.ts b/packages/api/src/modelSpecs/modelSpecs.test.ts
+index 359ff23..7e7a5af 100644
+--- a/packages/api/src/modelSpecs/modelSpecs.test.ts
++++ b/packages/api/src/modelSpecs/modelSpecs.test.ts
+@@ -47,3 +47,9 @@ describe('modelSpecs helpers', () => {
+     });
+-    expect(sanitizedModelSpecs.list[0]).not.toHaveProperty('skills');
++    expect(sanitizedModelSpecs.list[0].skills).toBe(true);
++    expect(JSON.stringify(sanitizedModelSpecs)).not.toContain('private-skill');
++  });
++
++  it.each([true, false, undefined])('preserves the public Skills default %s', (skills) => {
++    const config = { list: [{ name: 'default', label: 'Default', skills }] };
++    expect(sanitizeModelSpecs(config).list[0].skills).toBe(skills);
+   });

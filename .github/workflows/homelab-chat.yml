@@ -45,7 +45,7 @@ jobs:
         working-directory: upstream/packages/api
         run: |
           npx tsc --noEmit
-          npm run test:ci -- --runInBand --coverage=false src/agents/load.spec.ts
+          npm run test:ci -- --runInBand --coverage=false src/agents/load.spec.ts src/modelSpecs/modelSpecs.test.ts
       - name: Check startup and conversation loading
         working-directory: upstream
         env:

@@ -30,3 +30,6 @@ rewriting at startup. Local image builds require the named build context
 `--build-context chat-api=/path/to/matched/packages/api/dist`.
 The API also honors explicit Search/Skills Off choices over model-spec defaults;
 those settings are tested at both UI-state and server admission boundaries.
+
+The authenticated model catalog exposes only the Skills default, with configured
+skill identities kept on the server. Its sanitizer is included in the API tests.
