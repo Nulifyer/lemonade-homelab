@@ -544,6 +544,11 @@ int main() {
     http.set_connection_timeout(2);
     auto live = http.Get("/ready");
     check(live && live->status == 200, "Network readiness failed");
+    auto image_ping = http.Options("/v1/images/generations");
+    check(image_ping && image_ping->status == 204, "Network image discovery failed");
+    auto denied_options = http.Options("/internal/config");
+    check(denied_options && denied_options->status == 403,
+          "Network OPTIONS exposed administration");
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in a{};
     a.sin_family = AF_INET;

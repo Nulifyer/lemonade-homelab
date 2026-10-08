@@ -382,6 +382,7 @@ void ConsumerService::start() {
     impl_->http.set_keep_alive_timeout(30);
     impl_->http.Get("/.*", [this](const auto &req, auto &res) { handle(req, res); });
     impl_->http.Post("/.*", [this](const auto &req, auto &res) { handle(req, res); });
+    impl_->http.Options("/.*", [this](const auto &req, auto &res) { handle(req, res); });
     for (const auto &method : {"PUT", "DELETE", "PATCH"}) {
         auto denied = [](const auto &, auto &res) {
             reject(res, 403, "Consumer administration is unavailable");
