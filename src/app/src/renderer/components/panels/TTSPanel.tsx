@@ -370,7 +370,7 @@ const TTSPanel: React.FC<TTSPanelProps> = ({
           />
           <div className="chat-controls">
             <div className="chat-controls-left">
-              <ModelSelector disabled={busy} filterLabel="tts" effectiveModel={ttsModel} />
+              <ModelSelector disabled={busy} effectiveModel={ttsModel} />
             </div>
             {(tts.audioState == PLAYING) ? (
               <button className="chat-stop-button" onClick={tts.stopAudio} title="Stop audio">

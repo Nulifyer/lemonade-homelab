@@ -7,13 +7,12 @@ import { getModelDisplayName } from '../utils/modelDisplayName';
 
 interface ModelSelectorProps {
   disabled: boolean;
-  filterLabel?: string;
   effectiveModel?: string;
 }
 
 type SelectorModel = { id: string; info?: ReturnType<typeof useModels>['downloadedModels'][number]['info']; unavailable?: boolean };
 
-const ModelSelector: React.FC<ModelSelectorProps> = ({ disabled, filterLabel, effectiveModel }) => {
+const ModelSelector: React.FC<ModelSelectorProps> = ({ disabled, effectiveModel }) => {
   const {
     downloadedModels,
     modelsData,
@@ -30,7 +29,6 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ disabled, filterLabel, ef
 
   const visibleDownloadedModels = downloadedModels.filter((model) => {
     if (model.info?.labels?.includes('upscaling')) return false;
-    if (filterLabel && !model.info?.labels?.includes(filterLabel)) return false;
     if (!isCollectionModel(model.info)) {
       return true;
     }
@@ -39,7 +37,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ disabled, filterLabel, ef
 
   const visibleDownloadedModelIds = new Set(visibleDownloadedModels.map((model) => model.id));
 
-  const unavailableCustomCollections: SelectorModel[] = filterLabel ? [] : Object.entries(modelsData)
+  const unavailableCustomCollections: SelectorModel[] = Object.entries(modelsData)
     .filter(([id, info]) => isCollectionModel(info) && isCustomCollectionModel(id, info) && !visibleDownloadedModelIds.has(id))
     .map(([id, info]) => ({ id, info, unavailable: true }));
 
