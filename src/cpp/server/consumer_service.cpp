@@ -134,20 +134,69 @@ std::string message_text(const json &content) {
         return content[0]["text"].get<std::string>();
     throw std::invalid_argument("A single text image prompt is required");
 }
+bool image_tool_context(const json &message) {
+    const auto role = message.value("role", "");
+    if (role == "system" || role == "developer") return true;
+    if (role != "user" || !message.contains("content")) return false;
+    const auto &content = message["content"];
+    if (content.is_string()) {
+        const auto &text = content.get_ref<const std::string &>();
+        return text.rfind("System notice: this turn has about ", 0) == 0 &&
+               text.find(" more tool-calling rounds left before it is cut off.") != std::string::npos;
+    }
+    if (!content.is_array()) return false;
+    bool image = false, success = false;
+    for (const auto &block : content) {
+        const auto type = block.value("type", "");
+        if (type == "image_url") image = true;
+        else if (type == "text") {
+            const auto text = block.value("text", "");
+            success = success || text.rfind("Image generated successfully", 0) == 0;
+        } else return false;
+    }
+    return image && success;
+}
 void dispatch_image(const json &body, const std::string &id, httplib::Response &res) {
     const auto &messages = body.at("messages");
     if (!messages.is_array() || messages.empty() || messages.size() > 256)
         throw std::invalid_argument("Bounded messages are required");
-    size_t user = messages.size();
-    for (size_t i = 0; i < messages.size(); ++i)
-        if (messages[i].value("role", "") == "user") user = i;
+    size_t user = messages.size(), assistant = messages.size(), result = messages.size();
+    for (size_t i = 0; i < messages.size(); ++i) {
+        const auto role = messages[i].value("role", "");
+        if (role == "user") user = i;
+        if (role == "assistant") assistant = i;
+    }
+    if (assistant != messages.size() && messages[assistant].contains("tool_calls")) {
+        const auto &calls = messages[assistant]["tool_calls"];
+        if (!calls.is_array() || calls.size() != 1)
+            throw std::invalid_argument("Expected one image tool call");
+        for (size_t i = assistant + 1; i < messages.size(); ++i) {
+            if (messages[i].value("role", "") == "tool" &&
+                messages[i].value("tool_call_id", json()) == calls[0].at("id")) {
+                if (result != messages.size()) throw std::invalid_argument("Duplicate image tool result");
+                result = i;
+            }
+        }
+        if (result != messages.size()) {
+            bool context_only = true;
+            for (size_t i = result + 1; i < messages.size(); ++i)
+                context_only = context_only && image_tool_context(messages[i]);
+            if (context_only) {
+                user = messages.size();
+                for (size_t i = 0; i < assistant; ++i)
+                    if (messages[i].value("role", "") == "user") user = i;
+            } else result = messages.size();
+        }
+    }
     if (user == messages.size()) throw std::invalid_argument("An image prompt is required");
     const auto prompt = message_text(messages[user].at("content"));
     if (prompt.empty() || prompt.size() > 2000)
         throw std::invalid_argument("Image prompt must contain 1 through 2000 bytes");
     json message = {{"role", "assistant"}, {"content", nullptr}};
     std::string finish = "stop";
-    if (user + 1 == messages.size()) {
+    if (result == messages.size()) {
+        if (user + 1 != messages.size())
+            throw std::invalid_argument("Expected a new image prompt or matching tool result");
         std::string tool_name;
         const auto &tools = body.at("tools");
         if (!tools.is_array() || tools.size() > 64)
@@ -171,19 +220,19 @@ void dispatch_image(const json &body, const std::string &id, httplib::Response &
                           {"arguments", json{{"prompt", prompt}}.dump()}}}}});
         finish = "tool_calls";
     } else {
-        // Complete only a matching tool result; never replay a submitted image job.
-        if (messages.size() != user + 3 || messages[user + 1].value("role", "") != "assistant" ||
-            messages.back().value("role", "") != "tool")
-            throw std::invalid_argument("Expected one image tool result");
-        const auto &calls = messages[user + 1].at("tool_calls");
-        if (!calls.is_array() || calls.size() != 1 ||
-            calls[0].at("id") != messages.back().at("tool_call_id"))
-            throw std::invalid_argument("Image tool result ID mismatch");
+        const auto &calls = messages[assistant]["tool_calls"];
         const auto name = calls[0].at("function").value("name", "");
         if (name != "generate_image" && name.rfind("generate_image_mcp_", 0) != 0)
             throw std::invalid_argument("Unexpected image tool");
-        const auto content = messages.back().at("content");
-        const auto text = content.is_string() ? content.get<std::string>() : content.dump();
+        std::string text = messages[result].at("content").is_string()
+            ? messages[result]["content"].get<std::string>() : messages[result]["content"].dump();
+        // LibreChat projects image artifacts into a synthetic user message and adds budget notices.
+        for (size_t i = result + 1; i < messages.size(); ++i) {
+            const auto &content = messages[i].at("content");
+            if (content.is_array())
+                for (const auto &block : content)
+                    if (block.value("type", "") == "text") text += block.value("text", "");
+        }
         const bool success = text.find("Image generated successfully") != std::string::npos &&
                              text.find("\"isError\":true") == std::string::npos;
         message["content"] = success ? "Image ready." : "Image generation failed. Check the tool details.";

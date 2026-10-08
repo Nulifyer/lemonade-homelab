@@ -390,6 +390,29 @@ int main() {
         service.handle(request(std::string(prefix) + "chat/completions", done), completed);
         check(json::parse(completed.body)["choices"][0]["message"]["content"] == "Image ready.",
               "Successful image tool result not completed");
+        auto projected = done;
+        projected["messages"].back()["content"] =
+            "Tool response is included in the next message as a Human message";
+        projected["messages"].push_back({{"role", "user"}, {"content", json::array({
+            {{"type", "text"}, {"text", "Image generated successfully. The image is attached to this tool result."}},
+            {{"type", "image_url"}, {"image_url", {{"url", "data:image/png;base64,cG5n"}}}}})}});
+        projected["messages"].push_back({{"role", "user"}, {"content",
+            "System notice: this turn has about 2 more tool-calling rounds left before it is cut off."}});
+        httplib::Response projection;
+        service.handle(request(std::string(prefix) + "chat/completions", projected), projection);
+        check(projection.status == 200 &&
+                  json::parse(projection.body)["choices"][0]["message"]["content"] == "Image ready." &&
+                  !json::parse(projection.body)["choices"][0]["message"].contains("tool_calls"),
+              "LibreChat artifact or budget notice repeated an image job");
+        auto next = done;
+        next["messages"].push_back({{"role", "assistant"}, {"content", "Image ready."}});
+        next["messages"].push_back({{"role", "user"}, {"content", "A new scene"}});
+        httplib::Response next_response;
+        service.handle(request(std::string(prefix) + "chat/completions", next), next_response);
+        check(next_response.status == 200 &&
+                  json::parse(json::parse(next_response.body)["choices"][0]["message"]["tool_calls"][0]
+                                  ["function"]["arguments"].get<std::string>())["prompt"] == "A new scene",
+              "An old image tool result swallowed a new prompt");
         done["messages"].back()["content"] = "Image generation failed";
         httplib::Response failure;
         service.handle(request(std::string(prefix) + "chat/completions", done), failure);
