@@ -391,6 +391,7 @@ The following options are available depending on the recipe being used:
 | `--llamacpp-device DEVICES` | Comma-separated list of accelerator devices to use (e.g. Vulkan0) | `""` |
 | `--llamacpp-args ARGS` | Custom arguments to pass to llama-server | `""` |
 | `--hybrid-copy-gib SIZE` | Maximum prepared NPU weight copies in GiB | `8` |
+| `--hybrid-min-output-width WIDTH` | Minimum NPU projection output width; zero preserves all eligible widths | `0` |
 
 #### Parakeet Redux C++ CPU (`parakeet` recipe)
 

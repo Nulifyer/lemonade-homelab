@@ -118,6 +118,7 @@ the generator instead. Prose outside the markers is preserved. -->
 | `llamacpp_device` | `--llamacpp-device` | DEVICES | "" | Comma-separated list of accelerator devices to use (e.g. Vulkan0) |
 | `llamacpp_args` | `--llamacpp-args` | ARGS | "" | Custom arguments to pass to llama-server |
 | `hybrid_copy_gib` | `--hybrid-copy-gib` | SIZE | 8 | Maximum prepared NPU weight copies in GiB |
+| `hybrid_min_output_width` | `--hybrid-min-output-width` | WIDTH | 0 | Minimum NPU projection output width; zero preserves all eligible widths |
 
 #### `llamacpp` — Llama.cpp GPU
 
@@ -170,6 +171,7 @@ the generator instead. Prose outside the markers is preserved. -->
 | `width` | — | SIZE | 512 | Output image width |
 | `height` | — | SIZE | 512 | Output image height |
 | `sampling_method` | — | ARGS | "" | Sampling method |
+| `scheduler` | — | ARGS | "" | Noise scheduler |
 | `flow_shift` | — | SIZE | 0.0 | Flow shift |
 
 #### `thenoise` — TheNoise ROCm

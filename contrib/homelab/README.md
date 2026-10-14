@@ -69,6 +69,15 @@ tasks, 1024 for roleplay and 2048 for agent work. Temperature, top-p, top-k,
 min-p and penalties are part of this shared native contract. Backend contexts
 and NPU copy budgets remain saved recipe options, not HTTP sampling settings.
 
+The hybrid recipe also saves `hybrid_min_output_width`, an integer from zero
+through 32,768. Zero preserves all otherwise eligible projection widths. The
+adapter passes it as `GGML_XDNA_MIN_OUTPUT_WIDTH` to the bundled engine. Mellum
+Q6 can use 1,024 to keep narrow K/V projections on Vulkan while eligible Q and
+attention output projections use XDNA2. Router logits and routed experts remain
+on Vulkan. Other profiles retain the zero default. Native `/props.hybrid`
+reports the resolved placement controls and actual NPU work. This configuration
+does not establish a performance gain; measure matched fresh-prompt requests.
+
 Leave `LEMONADE_API_KEY` and `LEMONADE_ADMIN_API_KEY` unset for the selected
 key-free LAN deployment. When a native API key is set, the consumer listener
 also enforces it. Wyoming has no protocol authentication and requires a private

@@ -92,7 +92,7 @@ static std::vector<std::string> get_keys_for_recipe(const std::string& recipe) {
 
 static bool is_empty_option(json option) {
     return option.is_null() ||
-           (option.is_number() && (option == -1)) ||
+           (option.is_number() && !option.is_number_unsigned() && (option == -1)) ||
            (option.is_string() && (option == "" || option == "auto"));
 }
 

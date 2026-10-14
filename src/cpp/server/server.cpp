@@ -3521,6 +3521,9 @@ static std::string validate_option_value(const std::string& key,
     if (expected.is_number_integer() && !value.is_number_integer()) {
         return "'" + key + "' must be a whole number";
     }
+    if (key == "hybrid_min_output_width" && value.get<uint64_t>() > 32768) {
+        return "'hybrid_min_output_width' must be from zero through 32768";
+    }
     return "";
 }
 

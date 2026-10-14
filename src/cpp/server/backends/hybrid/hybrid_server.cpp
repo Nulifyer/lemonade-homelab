@@ -13,9 +13,13 @@ LlamaCppServer::RuntimeLaunch HybridServer::prepare_runtime(
     const json budget = options.get_option("hybrid_copy_gib");
     if (!budget.is_number() || budget.get<double>() <= 0 || budget.get<double>() > 32)
         throw std::invalid_argument("hybrid_copy_gib must be greater than zero and at most 32");
+    const json min_width = options.get_option("hybrid_min_output_width");
+    if (!min_width.is_number_integer() || min_width.get<uint64_t>() > 32768)
+        throw std::invalid_argument("hybrid_min_output_width must be an integer from zero through 32768");
     const std::string executable = BackendUtils::get_backend_binary_path(*hybrid::spec(), "npu");
     return {executable, DEVICE_GPU | DEVICE_NPU,
             {{"HYBRID_REQUIRE_NPU", "1"}, {"GGML_XDNA_MAX_COPY_GB", budget.dump()},
+             {"GGML_XDNA_MIN_OUTPUT_WIDTH", min_width.dump()},
              {"GGML_XDNA_HOST_ONLY", "0"}, {"LLAMA_API_KEY", ""}}, false};
 }
 namespace hybrid {

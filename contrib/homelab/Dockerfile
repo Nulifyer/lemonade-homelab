@@ -1,4 +1,4 @@
-FROM ghcr.io/nulifyer/llama-xdna-hybrid@sha256:982a586fdd49bfd181b8e4613ded8d8e857969bf650ecb44ee74c1120000118d AS hybrid-runtime
+FROM ghcr.io/nulifyer/llama-xdna-hybrid@sha256:c66e33210c9edd36dfe74e4e6a07750f7f68ae93966bc1e96113f809f75694a2 AS hybrid-runtime
 
 # Bare Ubuntu lacks OpenSSL CA symlinks; give APT the copied bundle explicitly.
 FROM ubuntu:26.04 AS manager-build

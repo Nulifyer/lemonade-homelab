@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 
 
@@ -98,7 +99,29 @@ def main():
                     == "metadata-speech"
                 )
                 assert not request("/api/v1/health")["all_models_loaded"]
-                print("Metadata acceptance passed: modality contexts and alias targets")
+                request(
+                    "/api/v1/models/register",
+                    {
+                        "model_name": "user.metadata-hybrid",
+                        "checkpoint": "example/metadata-fixture:model.gguf",
+                        "recipe": "hybrid",
+                    },
+                )
+                options_path = "/api/v1/models/metadata-hybrid/options"
+                assert request(options_path)["effective"]["hybrid_min_output_width"] == 0
+                options = request(options_path, {"hybrid_min_output_width": 1024})
+                assert options["saved"]["hybrid_min_output_width"] == 1024, options
+                for invalid in (-2, 32769, 1.5, 18446744073709551615):
+                    try:
+                        request(options_path, {"hybrid_min_output_width": invalid})
+                    except urllib.error.HTTPError as error:
+                        assert error.code == 400, error
+                    else:
+                        raise AssertionError(f"Accepted invalid hybrid width {invalid}")
+                    assert request(options_path)["saved"]["hybrid_min_output_width"] == 1024
+                options = request(options_path, {"hybrid_min_output_width": None})
+                assert options["effective"]["hybrid_min_output_width"] == 0, options
+                print("Metadata acceptance passed: contexts, aliases and hybrid width options")
             finally:
                 process.terminate()
                 try:

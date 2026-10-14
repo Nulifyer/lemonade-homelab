@@ -20,6 +20,7 @@ inline const BackendDescriptor descriptor = [] {
     d.config_extra = {{"prefer_system", false}};
     d.options[0].default_value = "system";
     d.options.push_back({"hybrid_copy_gib", "--hybrid-copy-gib", 8, "SIZE", "Maximum prepared NPU weight copies in GiB", "Hybrid Options"});
+    d.options.push_back({"hybrid_min_output_width", "--hybrid-min-output-width", 0, "WIDTH", "Minimum NPU projection output width; zero preserves all eligible widths", "Hybrid Options"});
     return d;
 }();
 }}}

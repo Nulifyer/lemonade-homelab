@@ -253,6 +253,11 @@ int main() {
             !merged.has_option("cfg_scale"), "", "");
     }
 
+    failures += fail("unsigned maximum is not the signed auto sentinel",
+        !RecipeOptions::is_default_sentinel("hybrid_min_output_width", json(UINT64_MAX)), "", "");
+    failures += fail("signed minus one remains the auto sentinel",
+        RecipeOptions::is_default_sentinel("hybrid_min_output_width", json(-1)), "", "");
+
     std::printf("\n%d failures\n", failures);
     return failures == 0 ? 0 : 1;
 }
