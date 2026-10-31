@@ -293,11 +293,16 @@ int main() {
           "Operator image cap remains limited to eight steps");
 
     check(defaults["critical_models"].size() == 3, "Wrong critical defaults");
+    check(defaults["resident_models"].empty(), "Optional residency enabled by default");
     for (const json &input :
          {json{{"unknown", true}}, json{{"port", 0}}, json{{"port", 10300}},
           json{{"documents", {{"bad/path", "text"}}}},
           json{{"documents", {{"oversized", std::string(16385, 'x')}}}},
           json{{"enabled", "yes"}}, json{{"critical_models", nullptr}},
+          json{{"resident_models", nullptr}},
+          json{{"resident_models", {"agent-work", "agent-work"}}},
+          json{{"resident_models", {"unknown-role"}}},
+          json{{"resident_models", {"image-generation"}}},
           json{{"image_prompt_model", "agent-work"}}, json{{"image_prompt_model", true}},
           json{{"image_prompt_instructions", false}}, json{{"image_prompt_instructions", ""}},
           json{{"image_prompt_instructions", std::string(16385, 'x')}},
@@ -341,7 +346,7 @@ int main() {
         std::lock_guard lock(mutex);
         return health;
     };
-    manager.ensure_critical = [&](const std::string &role, std::atomic<bool> &cancel) {
+    manager.ensure_resident = [&](const std::string &role, std::atomic<bool> &cancel) {
         if (cancel)
             return;
         ensured.push_back(role);
@@ -905,6 +910,34 @@ int main() {
     for (const auto &role : ensured)
         check(role != "agent-work" && role != "chat-roleplay",
               "On-demand model loaded at startup");
+    {
+        auto resident_manager = manager;
+        resident_manager.ensure_resident = [&](const std::string &role, std::atomic<bool> &) {
+            ensured.push_back(role);
+            if (role == "agent-work")
+                throw std::runtime_error("General model unavailable");
+        };
+        ConsumerService residents(lemon::ConsumerConfig::parse(
+            {{"resident_models", {"small-task", "agent-work", "chat-roleplay"}}}),
+            resident_manager);
+        ensured.clear();
+        residents.reconcile();
+        check(ensured == std::vector<std::string>{"small-task", "speech-stt", "speech-tts",
+                                                "agent-work", "chat-roleplay"},
+              "Residency order, duplicate role or recovery isolation failed");
+        check(residents.readiness()["ready"].get<bool>(),
+              "Unavailable optional resident disabled healthy critical services");
+        health[0]["backend_alive"] = false;
+        ensured.clear();
+        residents.reconcile();
+        check(ensured == std::vector<std::string>{"small-task", "speech-stt", "speech-tts"},
+              "Optional model loaded while a critical service was unavailable");
+        health[0]["backend_alive"] = true;
+        residents.stop();
+        ensured.clear();
+        residents.reconcile();
+        check(ensured.empty(), "Stopped service attempted model recovery");
+    }
     streaming = true;
     {
         httplib::Response stream;

@@ -19,6 +19,7 @@
 #include "lemon/backend_manager.h"
 #include "lemon/runtime_config.h"
 #include "lemon/utils/custom_args.h"
+#include "lemon/utils/model_context.h"
 #include "lemon/utils/recipe_arg_resolver.h"
 #include "lemon/utils/process_manager.h"
 #include "lemon/utils/json_utils.h"
@@ -279,6 +280,7 @@ void LlamaCppServer::load(const std::string& model_name,
 
     LOG(DEBUG, "LlamaCpp") << "Per-model settings: " << options.to_log_string() << std::endl;
 
+    set_request_context_length(0);
     int ctx_size = options.get_option("ctx_size");
 
     std::string llamacpp_device = options.get_option("llamacpp_device");
@@ -583,11 +585,21 @@ void LlamaCppServer::load(const std::string& model_name,
         throw std::runtime_error("llama-server failed to start");
     }
 
+    try {
+        const auto props = utils::HttpClient::get(get_base_url() + "/props", {}, 5,
+                                                  utils::HttpSecurityPolicy::TrustedLoopback);
+        if (props.status_code == 200)
+            set_request_context_length(utils::request_context_from_props(json::parse(props.body)));
+    } catch (const std::exception& e) {
+        LOG(WARNING, "LlamaCpp") << "Context metadata unavailable: " << e.what() << std::endl;
+    }
+
     LOG(DEBUG, "LlamaCpp") << "Model loaded on port " << get_backend_port() << std::endl;
 }
 
 void LlamaCppServer::unload() {
     stop_backend_watchdog();
+    set_request_context_length(0);
     LOG(INFO, "LlamaCpp") << "Unloading model..." << std::endl;
 
     const ProcessHandle handle = consume_process_handle_for_cleanup();

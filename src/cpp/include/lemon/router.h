@@ -210,6 +210,8 @@ public:
     bool is_model_loaded(const std::string& model_name) const;
 
     RecipeOptions get_model_recipe_options(const std::string& model_name) const;
+    int64_t resolve_model_context_length(const std::string& model_name,
+                                         const ModelInfo& info) const;
 
     ModelType get_model_type(const std::string& model_name = "") const;
 

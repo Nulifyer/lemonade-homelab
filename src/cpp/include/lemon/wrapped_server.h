@@ -397,6 +397,17 @@ public:
         return recipe_options_;
     }
 
+    // Cached once at backend load. Metadata must never make inference-time
+    // HTTP calls while holding the router load lock.
+    int64_t get_request_context_length() const {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        return request_context_length_;
+    }
+    void set_request_context_length(int64_t context) {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        request_context_length_ = context;
+    }
+
     // recipe_options_ holds the ctx_size the backend was started with, so the
     // -1 that asked for it is gone by the time anyone reads it back. Keep that
     // request so a later load spelling -1 can be recognized as the same load.
@@ -661,6 +672,7 @@ protected:
     std::chrono::steady_clock::time_point last_access_time_;
     RecipeOptions recipe_options_;
     bool ctx_size_auto_ = false;
+    int64_t request_context_length_ = 0;
 
     // Busy state tracking (for safe eviction)
     mutable std::mutex state_mutex_;

@@ -30,7 +30,7 @@ class ConsumerService {
         std::function<nlohmann::json()> health;
         std::function<nlohmann::json()> voices;
         std::function<nlohmann::json(const std::string &)> metadata;
-        std::function<void(const std::string &, std::atomic<bool> &)> ensure_critical;
+        std::function<void(const std::string &, std::atomic<bool> &)> ensure_resident;
     };
     ConsumerService(ConsumerConfig config, Manager manager, std::string api_key = {});
     ~ConsumerService();

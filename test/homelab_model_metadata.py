@@ -98,6 +98,24 @@ def main():
                     request("/api/v1/models/speech-fixture")["alias_of"]
                     == "metadata-speech"
                 )
+                # Metadata budgets one chat even before the backend starts.
+                request(
+                    "/api/v1/models/metadata-chat/options",
+                    {"ctx_size": 131072, "llamacpp_args": "--parallel 2"},
+                )
+                assert (
+                    request("/api/v1/models/metadata-chat")["context_length"] == 65536
+                )
+                request(
+                    "/internal/aliases",
+                    {"alias": "context-fixture", "target": "user.metadata-chat"},
+                )
+                assert (
+                    request("/api/v1/models/context-fixture")["context_length"] == 65536
+                )
+                shown = request("/api/show", {"model": "context-fixture"})
+                assert shown["parameters"] == "num_ctx 65536", shown
+                assert shown["model_info"]["llamacpp.context_length"] == 65536, shown
                 assert not request("/api/v1/health")["all_models_loaded"]
                 request(
                     "/api/v1/models/register",
@@ -108,7 +126,9 @@ def main():
                     },
                 )
                 options_path = "/api/v1/models/metadata-hybrid/options"
-                assert request(options_path)["effective"]["hybrid_min_output_width"] == 0
+                assert (
+                    request(options_path)["effective"]["hybrid_min_output_width"] == 0
+                )
                 options = request(options_path, {"hybrid_min_output_width": 1024})
                 assert options["saved"]["hybrid_min_output_width"] == 1024, options
                 for invalid in (-2, 32769, 1.5, 18446744073709551615):
@@ -118,10 +138,15 @@ def main():
                         assert error.code == 400, error
                     else:
                         raise AssertionError(f"Accepted invalid hybrid width {invalid}")
-                    assert request(options_path)["saved"]["hybrid_min_output_width"] == 1024
+                    assert (
+                        request(options_path)["saved"]["hybrid_min_output_width"]
+                        == 1024
+                    )
                 options = request(options_path, {"hybrid_min_output_width": None})
                 assert options["effective"]["hybrid_min_output_width"] == 0, options
-                print("Metadata acceptance passed: contexts, aliases and hybrid width options")
+                print(
+                    "Metadata acceptance passed: per-chat contexts, Ollama, aliases and hybrid width options"
+                )
             finally:
                 process.terminate()
                 try:

@@ -701,7 +701,7 @@ Server::Server(std::shared_ptr<RuntimeConfig> config,
             metadata["runtime_name"] = model_manager_->resolve_model_name(name);
             return metadata;
         };
-        manager.ensure_critical = [this](const std::string& role, std::atomic<bool>& cancel) {
+        manager.ensure_resident = [this](const std::string& role, std::atomic<bool>& cancel) {
             const auto name = model_manager_->resolve_model_name(resolve_alias_target(role));
             for (const auto& model : router_->get_all_loaded_models()) {
                 const auto health = model.value("backend_health", "");
@@ -712,8 +712,8 @@ Server::Server(std::shared_ptr<RuntimeConfig> config,
                 }
             }
             auto info = model_manager_->get_model_info(name);
-            if (!info.downloaded) throw std::runtime_error("Critical model is not downloaded");
-            LOG(INFO, "Consumer") << "Restoring critical role " << role << std::endl;
+            if (!info.downloaded) throw std::runtime_error("Resident model is not downloaded");
+            LOG(INFO, "Consumer") << "Restoring resident role " << role << std::endl;
             router_->load_model(name, info, RecipeOptions(info.recipe, json::object()),
                 true, false, true, LoadPurpose::UserInference, &cancel);
         };
@@ -3224,33 +3224,8 @@ void Server::handle_model_register(const httplib::Request& req, httplib::Respons
 }
 
 int64_t Server::resolve_context_length(const std::string& model_id, const ModelInfo& info) const {
-    const auto* descriptor = backends::descriptor_for(info.recipe);
-    if (!descriptor || !descriptor->uses_ctx_size) {
-        return info.max_context_window > 0 ? info.max_context_window : 0;
-    }
-    // ctx_size stores -1 for "size this automatically", so only a positive
-    // value answers; anything else falls through to the next source.
-    auto ctx_size_of = [](const RecipeOptions& options) -> int64_t {
-        const nlohmann::json ctx_json = options.get_option("ctx_size");
-        return ctx_json.is_number() ? ctx_json.get<int64_t>() : 0;
-    };
-
-    if (router_) {
-        const int64_t loaded_ctx =
-            ctx_size_of(router_->get_model_recipe_options(resolve_alias_target(model_id)));
-        if (loaded_ctx > 0) {
-            return loaded_ctx;
-        }
-
-        const RecipeOptions no_request_options(info.recipe, nlohmann::json::object());
-        const int64_t configured_ctx =
-            ctx_size_of(router_->resolve_effective_options(info, no_request_options));
-        if (configured_ctx > 0) {
-            return configured_ctx;
-        }
-    }
-
-    return info.max_context_window > 0 ? info.max_context_window : 0;
+    return router_ ? router_->resolve_model_context_length(resolve_alias_target(model_id), info)
+                   : (info.max_context_window > 0 ? info.max_context_window : 0);
 }
 
 // Maximum collection-component nesting depth embedded in "models" arrays.

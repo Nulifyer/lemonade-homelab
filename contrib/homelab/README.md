@@ -61,7 +61,21 @@ persistent aliases. They currently target HA Qwen 2B, Redux and Kokoro. Recovery
 uses saved recipe options and never downloads absent models. It restores missing
 or dead backends and pins an existing healthy backend without reloading it.
 Healthy includes `busy`. A failed role does not skip the other critical roles.
-Agent Qwen3.6 35B-A3B and Skyfall remain on demand. Three LLM slots allow both alongside HA.
+The optional `consumer.resident_models` list uses the same load/pin/recovery
+policy after critical roles are healthy. It defaults to empty. For example,
+`"resident_models": ["agent-work"]` keeps the general model available without
+adding it to the aggregate critical readiness requirement. A role listed in
+both lists is reconciled once. Missing general weights do not cause downloads
+or disable healthy HA/speech readiness. Recovery failures remain visible in logs
+and per-model health. Three LLM slots allow optional models alongside HA.
+
+Native model discovery, consumer discovery and Ollama `/api/show` report the
+context available to one request. For llama.cpp, the manager caches the actual
+`/props.default_generation_settings.n_ctx` after load. It does not divide that
+value again. Before load, an explicit positive `--parallel` or `-np` count gives
+a conservative estimate from total context. Saved `ctx_size` and runtime
+arguments retain their load/replay meaning. For two 64K slots, configure 131,072
+total context and `--parallel 2`; verify effective capacity on the actual engine.
 
 `consumer.presets` supplies missing sampling values. Explicit client fields win,
 including Ollama top-level options. Defaults are 256 output tokens for small

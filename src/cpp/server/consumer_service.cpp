@@ -336,6 +336,7 @@ json ConsumerConfig::defaults() {
              "scene fact is included. Return a complete usable prompt, not an example, summary, partial "
              "description or commentary."},
             {"critical_models", {"small-task", "speech-stt", "speech-tts"}},
+            {"resident_models", json::array()},
             {"public_url", "http://localhost:8080"},
             {"chat_url", ""},
             {"manager_url", ""},
@@ -466,15 +467,17 @@ ConsumerConfig ConsumerConfig::parse(const json &input) {
     }
     if (document_bytes > 65536)
         throw std::invalid_argument("Consumer documents exceed 64 KiB");
-    std::set<std::string> critical;
-    if (!result["critical_models"].is_array())
-        throw std::invalid_argument("critical_models must be a list");
-    for (const auto &role : result["critical_models"]) {
-        if (!role.is_string() || !purposes.count(role.get<std::string>()) ||
-            role == "image-generation" ||
-            !critical.insert(role.get<std::string>()).second)
-            throw std::invalid_argument(
-                "critical_models must contain unique supported roles");
+    for (const auto *key : {"critical_models", "resident_models"}) {
+        std::set<std::string> roles;
+        if (!result[key].is_array())
+            throw std::invalid_argument(std::string(key) + " must be a list");
+        for (const auto &role : result[key]) {
+            if (!role.is_string() || !purposes.count(role.get<std::string>()) ||
+                role == "image-generation" ||
+                !roles.insert(role.get<std::string>()).second)
+                throw std::invalid_argument(
+                    std::string(key) + " must contain unique supported roles");
+        }
     }
     if (!result["presets"].is_object())
         throw std::invalid_argument("presets must be an object");
@@ -560,14 +563,27 @@ json ConsumerService::readiness() const {
     return {{"backend", backend}, {"ready", all}, {"critical_models", ready}};
 }
 void ConsumerService::reconcile() {
-    for (const auto &role : impl_->config.value["critical_models"]) {
-        if (impl_->stopping)
+    std::set<std::string> attempted;
+    // Restore critical services first. Optional residency does not participate
+    // in aggregate readiness and must not load ahead of missing voice services.
+    for (const auto *key : {"critical_models", "resident_models"}) {
+        if (std::string(key) == "resident_models" && !readiness()["ready"].get<bool>())
             return;
-        try {
-            impl_->manager.ensure_critical(role.get<std::string>(), impl_->stopping);
-        } catch (...) {
-            std::cerr << json{{"event", "critical_model_failed"}, {"model", role}}.dump()
-                      << '\n';
+        for (const auto &role : impl_->config.value[key]) {
+            if (impl_->stopping)
+                return;
+            const auto name = role.get<std::string>();
+            if (!attempted.insert(name).second)
+                continue;
+            try {
+                impl_->manager.ensure_resident(name, impl_->stopping);
+            } catch (...) {
+                std::cerr << json{{"event", std::string(key) == "critical_models"
+                                              ? "critical_model_failed"
+                                              : "resident_model_failed"},
+                                  {"model", role}}.dump()
+                          << '\n';
+            }
         }
     }
 }

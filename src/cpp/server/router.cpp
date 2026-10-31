@@ -28,6 +28,7 @@
 #include "lemon/eviction_engine.h"
 #include "lemon/suspend_inhibitor.h"
 #include "lemon/utils/http_client.h"
+#include "lemon/utils/model_context.h"
 #include "lemon/utils/recipe_arg_resolver.h"
 
 namespace lemon {
@@ -1485,6 +1486,34 @@ RecipeOptions Router::get_model_recipe_options(const std::string& model_name) co
     auto* server = find_server_by_model_name(resolve_model_name(model_name));
     if (server && server->is_backend_alive()) return server->get_recipe_options();
     return RecipeOptions();
+}
+
+int64_t Router::resolve_model_context_length(const std::string& model_name,
+                                            const ModelInfo& info) const {
+    const auto* descriptor = backends::descriptor_for(info.recipe);
+    if (!descriptor || !descriptor->uses_ctx_size)
+        return info.max_context_window > 0 ? info.max_context_window : 0;
+    const auto configured = [&info](const RecipeOptions& options) -> int64_t {
+        const auto value = options.get_option("ctx_size");
+        if (!value.is_number()) return 0;
+        const auto total = value.get<int64_t>();
+        return info.recipe == "llamacpp"
+            ? utils::configured_request_context(total, options.get_option("llamacpp_args").get<std::string>())
+            : (total > 0 ? total : 0);
+    };
+    {
+        std::lock_guard<std::mutex> lock(load_mutex_);
+        auto* server = find_server_by_model_name(resolve_model_name(model_name));
+        if (server && server->is_backend_alive()) {
+            const auto actual = server->get_request_context_length();
+            if (actual > 0) return actual;
+            const auto fallback = configured(server->get_recipe_options());
+            if (fallback > 0) return fallback;
+        }
+    }
+    const auto fallback = configured(resolve_effective_options(
+        info, RecipeOptions(info.recipe, json::object())));
+    return fallback > 0 ? fallback : (info.max_context_window > 0 ? info.max_context_window : 0);
 }
 
 ModelType Router::get_model_type(const std::string& model_name) const {
