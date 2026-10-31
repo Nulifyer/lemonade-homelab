@@ -1,0 +1,6 @@
+{
+  "defaultProvider": "homelab",
+  "defaultModel": "agent-work",
+  "defaultThinkingLevel": "low",
+  "extensions": ["/opt/t3/lemonade.mjs"]
+}

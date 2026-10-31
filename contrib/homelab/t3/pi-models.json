@@ -1,0 +1,54 @@
+{
+  "providers": {
+    "homelab": {
+      "baseUrl": "http://lemonade:8080/v1",
+      "api": "openai-completions",
+      "apiKey": "local-placeholder",
+      "models": [
+        {
+          "id": "agent-work",
+          "name": "Homelab general MoE",
+          "reasoning": true,
+          "input": [
+            "text",
+            "image"
+          ],
+          "contextWindow": 65536,
+          "maxTokens": 8192,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "compat": {
+            "supportsDeveloperRole": false,
+            "supportsStore": false,
+            "maxTokensField": "max_tokens"
+          }
+        },
+        {
+          "id": "small-task",
+          "name": "Homelab small tasks",
+          "reasoning": false,
+          "input": [
+            "text"
+          ],
+          "contextWindow": 8192,
+          "maxTokens": 256,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "compat": {
+            "supportsDeveloperRole": false,
+            "supportsStore": false,
+            "maxTokensField": "max_tokens"
+          }
+        }
+      ]
+    }
+  }
+}

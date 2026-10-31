@@ -1,0 +1,13 @@
+{
+  "providerInstances": {
+    "homelab-pi": {
+      "driver": "pi",
+      "displayName": "Homelab models",
+      "enabled": true,
+      "config": {
+        "binaryPath": "/usr/local/bin/pi",
+        "launchArgs": "--provider homelab --model agent-work"
+      }
+    }
+  }
+}

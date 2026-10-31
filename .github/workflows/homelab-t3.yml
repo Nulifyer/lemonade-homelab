@@ -1,0 +1,53 @@
+name: Homelab T3 and Pi image
+on:
+  push:
+    tags: [homelab-t3-v*]
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: homelab-t3-image-publication
+  cancel-in-progress: false
+jobs:
+  image:
+    if: github.repository == 'Nulifyer/lemonade-homelab' && startsWith(github.ref, 'refs/tags/homelab-t3-v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: contrib/homelab/t3/Dockerfile
+          load: true
+          platforms: linux/amd64
+          build-args: |
+            SOURCE_REVISION=${{ github.sha }}
+            SERVICE_VERSION=${{ github.ref_name }}
+          tags: |
+            ghcr.io/nulifyer/t3-homelab:${{ github.ref_name }}
+            ghcr.io/nulifyer/t3-homelab:latest
+          cache-from: type=registry,ref=ghcr.io/nulifyer/t3-homelab:buildcache
+          cache-to: type=registry,ref=ghcr.io/nulifyer/t3-homelab:buildcache,mode=max
+      - name: Verify the CPU-only T3 and Pi service
+        env:
+          RELEASE_IMAGE: ghcr.io/nulifyer/t3-homelab:${{ github.ref_name }}
+        run: bash contrib/homelab/t3/test-service.sh "$RELEASE_IMAGE"
+      - name: Publish the accepted image
+        env:
+          RELEASE_IMAGE: ghcr.io/nulifyer/t3-homelab:${{ github.ref_name }}
+        run: |
+          docker push "$RELEASE_IMAGE"
+          docker push ghcr.io/nulifyer/t3-homelab:latest
+          docker inspect --format '{{index .RepoDigests 0}}' "$RELEASE_IMAGE" | cut -d@ -f2 > t3-image-digest.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: t3-image-digest
+          path: t3-image-digest.txt
