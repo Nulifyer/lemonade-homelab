@@ -3,11 +3,7 @@ FROM node:22.22.1-bookworm-slim
 ARG T3_VERSION=0.1.0
 ARG T3_ARCHIVE_SHA256=f7703ff1bb8f6243580058b3ccf2c02abb62eba4b991e26bbb1da22f4b56d9b1
 ARG PI_VERSION=0.80.5
-ARG SOURCE_REVISION=development
-ARG SERVICE_VERSION=development
-LABEL org.opencontainers.image.source="https://github.com/Nulifyer/lemonade-homelab" \
-      org.opencontainers.image.revision=$SOURCE_REVISION \
-      org.opencontainers.image.version=$SERVICE_VERSION
+
 
 # Browser libraries follow the pinned T3 browser setup list for Debian 12.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -41,6 +37,11 @@ ENV T3CODE_HOME=/data/t3 \
 USER node
 WORKDIR /workspace
 VOLUME ["/data", "/workspace"]
+ARG SOURCE_REVISION=development
+ARG SERVICE_VERSION=development
+LABEL org.opencontainers.image.source="https://github.com/Nulifyer/lemonade-homelab" \
+      org.opencontainers.image.revision=$SOURCE_REVISION \
+      org.opencontainers.image.version=$SERVICE_VERSION
 EXPOSE 3773
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s \
     CMD node -e "fetch('http://127.0.0.1:3773/',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

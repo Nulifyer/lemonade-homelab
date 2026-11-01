@@ -29,5 +29,9 @@ docker exec "$trial_id" node -e \
   "const fs=require('fs');fs.writeFileSync('/data/write-check','ok');fs.writeFileSync('/workspace/write-check','ok');if(process.getuid()===0)process.exit(1)"
 docker stop --time 15 "$trial_id" >/dev/null
 code=$(docker inspect --format '{{.State.ExitCode}}' "$trial_id")
-[[ "$code" == 0 || "$code" == 143 ]]
+oom=$(docker inspect --format '{{.State.OOMKilled}}' "$trial_id")
+echo "Explicit stop: exit=$code oom=$oom"
+# The official 0.1.0 CLI maps an intentional SIGTERM interruption to 130.
+[[ "$oom" == false ]]
+[[ "$code" == 0 || "$code" == 130 || "$code" == 143 ]]
 echo 'T3/Pi versions, model discovery, non-root HTTP startup, persistent writes and shutdown passed'

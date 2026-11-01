@@ -14,7 +14,9 @@ uses 8,192 context, 256 output tokens and no thinking.
 Docker initializes a new `/data` volume with the T3 provider settings and Pi
 configuration. Existing data is never overwritten by a startup script. T3 state
 lives under `/data/t3`; Pi configuration, auth and sessions use `/data/pi`.
-Repositories use the separate `/workspace` volume. The service runs as UID 1000.
+Repositories use the separate `/workspace` volume. The service runs as UID 1000. The official 0.1.0 direct CLI returns 130 after an
+intentional SIGTERM. The image smoke accepts that result only after HTTP was
+healthy, an explicit stop was sent and Docker reports no OOM kill.
 Pi loads `/opt/t3/lemonade.mjs` through its supported extension setting. This
 translates its thinking selector without changing sampling. Nex templates need
 `HOMELAB_REASONING_TEMPLATE=effort`; other tested Qwen templates use the default.
