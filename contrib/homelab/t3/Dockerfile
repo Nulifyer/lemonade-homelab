@@ -11,7 +11,7 @@ LABEL org.opencontainers.image.source="https://github.com/Nulifyer/lemonade-home
 
 # Browser libraries follow the pinned T3 browser setup list for Debian 12.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash ca-certificates curl git openssh-client python3 ripgrep fonts-liberation \
+    bash ca-certificates curl git openssh-client python3 ripgrep fonts-liberation libatomic1 \
     libnss3 libglib2.0-0 libatk1.0-0 libatk-bridge2.0-0 libatspi2.0-0 \
     libdbus-1-3 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 \
     libxfixes3 libxrandr2 libxkbcommon0 libgbm1 libasound2 libexpat1 \
@@ -23,6 +23,7 @@ RUN curl --fail --location --retry 3 --silent --show-error \
     && mkdir -p /opt/t3 \
     && tar -xzf /tmp/t3.tar.gz --strip-components=1 -C /opt/t3 \
     && rm /tmp/t3.tar.gz \
+    && /opt/t3/t3 --version \
     && npm install -g --ignore-scripts --no-audit --no-fund "@earendil-works/pi-coding-agent@${PI_VERSION}" \
     && npm cache clean --force
 
